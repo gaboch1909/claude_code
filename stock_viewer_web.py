@@ -221,24 +221,57 @@ def load_data():
         return None, f"Connection error: {e}"
 
 
+# ── Theme defaults ────────────────────────────────────────────────────────────
+THEME_DEFAULTS = {
+    "accent":   "#1F4E79",
+    "pos":      "#27ae60",
+    "neg":      "#c0392b",
+    "na":       "#c0392b",
+    "font_sz":  16,
+}
+
+THEME_PRESETS = {
+    "Dark Navy (default)": {"accent": "#1F4E79", "pos": "#27ae60", "neg": "#c0392b", "na": "#c0392b", "font_sz": 16},
+    "Steel Blue":          {"accent": "#1565c0", "pos": "#2e7d32", "neg": "#b71c1c", "na": "#b71c1c", "font_sz": 16},
+    "Forest Green":        {"accent": "#2e7d32", "pos": "#1565c0", "neg": "#c62828", "na": "#c62828", "font_sz": 16},
+    "Deep Purple":         {"accent": "#4a148c", "pos": "#00695c", "neg": "#c62828", "na": "#c62828", "font_sz": 16},
+    "Charcoal":            {"accent": "#37474f", "pos": "#388e3c", "neg": "#d32f2f", "na": "#d32f2f", "font_sz": 16},
+}
+
+
+def _init_theme():
+    for k, v in THEME_DEFAULTS.items():
+        if f"theme_{k}" not in st.session_state:
+            st.session_state[f"theme_{k}"] = v
+
+
+def _t(key):
+    return st.session_state.get(f"theme_{key}", THEME_DEFAULTS[key])
+
+
 # ── App ───────────────────────────────────────────────────────────────────────
 def main():
-    st.markdown("""
+    _init_theme()
+
+    accent  = _t("accent")
+    pos_col = _t("pos")
+    neg_col = _t("neg")
+    na_col  = _t("na")
+    font_sz = _t("font_sz")
+
+    st.markdown(f"""
     <style>
-    /* Coloured value spans */
-    .na  { color: #c0392b; font-style: italic; }
-    .pos { color: #27ae60; font-weight: 700; }
-    .neg { color: #c0392b; font-weight: 700; }
-    /* Section header bar */
-    .section-hdr {
-        background: #1F4E79; color: white;
+    .na  {{ color: {na_col};  font-style: italic; }}
+    .pos {{ color: {pos_col}; font-weight: 700; }}
+    .neg {{ color: {neg_col}; font-weight: 700; }}
+    .section-hdr {{
+        background: {accent}; color: white;
         padding: 5px 12px; border-radius: 5px;
-        font-size: 0.92em; font-weight: 700;
-        margin: 14px 0 6px 0;
-        letter-spacing: 0.04em;
-    }
-    /* Tighten up metric cards on mobile */
-    div[data-testid="metric-container"] { padding: 8px 10px !important; }
+        font-size: {font_sz - 2}px; font-weight: 700;
+        margin: 14px 0 6px 0; letter-spacing: 0.04em;
+    }}
+    .report-text {{ font-size: {font_sz}px; }}
+    div[data-testid="metric-container"] {{ padding: 8px 10px !important; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -291,6 +324,29 @@ def main():
                             st.rerun()
                         else:
                             st.error(f"Saved locally but push failed: {push_err}")
+
+        st.divider()
+        with st.expander("🎨 Customize Layout"):
+            preset = st.selectbox("Theme preset", list(THEME_PRESETS.keys()), key="preset_sel")
+            if st.button("Apply preset", use_container_width=True, key="btn_preset"):
+                for k, v in THEME_PRESETS[preset].items():
+                    st.session_state[f"theme_{k}"] = v
+                st.rerun()
+            st.markdown("**Custom colors**")
+            st.session_state["theme_accent"] = st.color_picker(
+                "Section headers", _t("accent"), key="cp_accent")
+            st.session_state["theme_pos"] = st.color_picker(
+                "Positive values", _t("pos"), key="cp_pos")
+            st.session_state["theme_neg"] = st.color_picker(
+                "Negative values", _t("neg"), key="cp_neg")
+            st.session_state["theme_na"] = st.color_picker(
+                "N/A values", _t("na"), key="cp_na")
+            st.session_state["theme_font_sz"] = st.slider(
+                "Font size", 12, 22, _t("font_sz"), key="sl_font")
+            if st.button("↺ Reset defaults", use_container_width=True, key="btn_reset_theme"):
+                for k, v in THEME_DEFAULTS.items():
+                    st.session_state[f"theme_{k}"] = v
+                st.rerun()
 
         st.divider()
         st.markdown("**Fields to display**")
