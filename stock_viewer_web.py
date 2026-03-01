@@ -3,6 +3,10 @@ import pandas as pd
 import requests
 import io
 import math
+import base64
+import time
+import yfinance as yf
+from datetime import datetime
 
 st.set_page_config(
     page_title="Stock Viewer",
@@ -58,6 +62,137 @@ def fmt_value(field, raw):
     except (ValueError, TypeError):
         pass
     return str(raw), ""
+
+
+# ── yfinance fetch ────────────────────────────────────────────────────────────
+def _safe_m(v):
+    try:
+        f = float(v)
+        return "N/A" if math.isnan(f) else round(f / 1e6, 2)
+    except Exception:
+        return "N/A"
+
+
+def _safe_v(v):
+    try:
+        f = float(v)
+        return "N/A" if math.isnan(f) else round(f, 4)
+    except Exception:
+        return "N/A"
+
+
+def _get_annual(fin, row, idx):
+    try:
+        if fin is not None and not fin.empty and row in fin.index and fin.shape[1] > idx:
+            return _safe_m(fin.iloc[:, idx][row])
+    except Exception:
+        pass
+    return "N/A"
+
+
+def _build_desc(info):
+    d = info.get("longBusinessSummary")
+    if d:
+        return d
+    qt, parts = info.get("quoteType", ""), []
+    if qt in ("ETF", "MUTUALFUND"):
+        parts.append(f"{info.get('longName', '')} is an {qt}.")
+        if info.get("category"):
+            parts.append(f"Category: {info['category']}.")
+        if info.get("fundFamily"):
+            parts.append(f"Fund family: {info['fundFamily']}.")
+    return " ".join(parts) if parts else "N/A"
+
+
+def fetch_ticker(symbol, retries=3, base_delay=5):
+    """Fetch live data for a ticker from yfinance. Returns (data_dict, error_str)."""
+    for attempt in range(retries):
+        try:
+            t = yf.Ticker(symbol)
+            info = t.info
+            if not info or (info.get("currentPrice") is None
+                            and info.get("regularMarketPrice") is None
+                            and info.get("previousClose") is None):
+                return None, f"No data found for '{symbol}'. Check the ticker symbol."
+
+            price = _safe_v(info.get("currentPrice") or info.get("regularMarketPrice"))
+            prev  = _safe_v(info.get("previousClose") or info.get("regularMarketPreviousClose"))
+            try:
+                chg = round(((float(price) - float(prev)) / float(prev)) * 100, 2) \
+                      if price != "N/A" and prev != "N/A" else "N/A"
+            except Exception:
+                chg = "N/A"
+
+            try:
+                fin = t.financials
+            except Exception:
+                fin = None
+
+            return {
+                "Stock Ticker":           symbol.upper(),
+                "Company Name":           info.get("longName", "N/A"),
+                "Company Description":    _build_desc(info),
+                "Mkt Cap/Net Assets (M)": _safe_m(info.get("marketCap") or info.get("totalAssets")),
+                "Price":                  price,
+                "Prev Close":             prev,
+                "Change %":               chg,
+                "Day High":               _safe_v(info.get("dayHigh") or info.get("regularMarketDayHigh")),
+                "Day Low":                _safe_v(info.get("dayLow") or info.get("regularMarketDayLow")),
+                "EPS (TTM)":              _safe_v(info.get("trailingEps")),
+                "Revenue TTM (M)":        _safe_m(info.get("totalRevenue")),
+                "Revenue 1Y (M)":         _get_annual(fin, "Total Revenue", 0),
+                "Revenue 3Y (M)":         _get_annual(fin, "Total Revenue", 2),
+                "Revenue 5Y (M)":         _get_annual(fin, "Total Revenue", 4),
+                "Net Income TTM (M)":     _safe_m(info.get("netIncomeToCommon")),
+                "Net Income 1Y (M)":      _get_annual(fin, "Net Income", 0),
+                "Net Income 3Y (M)":      _get_annual(fin, "Net Income", 2),
+                "Net Income 5Y (M)":      _get_annual(fin, "Net Income", 4),
+                "Total Debt (M)":         _safe_m(info.get("totalDebt")),
+                "Cash (M)":               _safe_m(info.get("totalCash")),
+                "Last Updated":           datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }, None
+
+        except Exception as e:
+            err = str(e)
+            if any(k in err.lower() for k in ("too many requests", "rate limit", "429")):
+                time.sleep(base_delay * (2 ** attempt))
+            else:
+                return None, f"Error: {e}"
+    return None, "Rate limited. Wait a moment and try again."
+
+
+# ── GitHub write-back ─────────────────────────────────────────────────────────
+def push_df_to_github(df):
+    """Save the DataFrame as stocks.xlsx and push it back to GitHub."""
+    try:
+        token = st.secrets["GITHUB_TOKEN"]
+        owner = st.secrets["GITHUB_OWNER"]
+        repo  = st.secrets["GITHUB_REPO"]
+    except KeyError as e:
+        return False, f"Missing secret: {e}"
+
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/stocks.xlsx"
+    headers = {
+        "Authorization":        f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    # Get current file SHA (required for update)
+    r = requests.get(url, headers=headers, timeout=15)
+    if r.status_code != 200:
+        return False, f"Could not read file from GitHub: {r.status_code}"
+    sha = r.json().get("sha", "")
+
+    # Serialise DataFrame → xlsx bytes → base64
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False)
+    content = base64.b64encode(buf.getvalue()).decode()
+
+    data = {"message": "update stocks", "content": content, "sha": sha}
+    r = requests.put(url, headers=headers, json=data, timeout=30)
+    if r.status_code in (200, 201):
+        return True, None
+    return False, f"GitHub push failed ({r.status_code}): {r.text[:200]}"
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────
@@ -131,6 +266,33 @@ def main():
         tickers = sorted(df["Stock Ticker"].dropna().astype(str).unique())
         selected = st.selectbox("Ticker", tickers)
 
+        st.divider()
+        with st.expander("➕ Add New Ticker"):
+            new_sym = st.text_input("Ticker symbol (e.g. AAPL, TD.TO)",
+                                    key="new_sym").strip().upper()
+            if st.button("Fetch & Add", use_container_width=True, key="btn_add"):
+                if not new_sym:
+                    st.warning("Enter a ticker symbol.")
+                else:
+                    with st.spinner(f"Fetching {new_sym}…"):
+                        data, err = fetch_ticker(new_sym)
+                    if err:
+                        st.error(err)
+                    else:
+                        # Update or append row
+                        updated = df[df["Stock Ticker"] != new_sym].copy()
+                        updated = pd.concat(
+                            [updated, pd.DataFrame([data])], ignore_index=True
+                        ).sort_values("Stock Ticker").reset_index(drop=True)
+                        ok, push_err = push_df_to_github(updated)
+                        if ok:
+                            st.success(f"✓ {new_sym} added!")
+                            load_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(f"Saved locally but push failed: {push_err}")
+
+        st.divider()
         st.markdown("**Fields to display**")
         chosen = []
         for group, fields in FIELD_GROUPS.items():
