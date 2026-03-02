@@ -284,34 +284,37 @@ def push_df_to_github(df):
     except KeyError as e:
         return False, f"Missing secret: {e}"
 
-    url = f"https://api.github.com/repos/{owner}/{repo}/contents/stocks.xlsx"
-    headers = {
-        "Authorization":        f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
+    try:
+        url = f"https://api.github.com/repos/{owner}/{repo}/contents/stocks.xlsx"
+        headers = {
+            "Authorization":        f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
 
-    r = requests.get(url, headers=headers, timeout=15)
-    if r.status_code != 200:
-        return False, f"GitHub read failed ({r.status_code}): {r.text[:200]}"
-    sha = r.json().get("sha", "")
+        r = requests.get(url, headers=headers, timeout=15)
+        if r.status_code != 200:
+            return False, f"GitHub read failed ({r.status_code}): {r.text[:200]}"
+        sha = r.json().get("sha", "")
 
-    buf = io.BytesIO()
-    df.to_excel(buf, index=False)
-    content = base64.b64encode(buf.getvalue()).decode()
+        buf = io.BytesIO()
+        df.to_excel(buf, index=False)
+        content = base64.b64encode(buf.getvalue()).decode()
 
-    data = {"message": "update stocks", "content": content, "sha": sha}
-    r = requests.put(url, headers=headers, json=data, timeout=30)
-    if r.status_code in (200, 201):
-        return True, None
-    if r.status_code == 403:
-        return False, (
-            "**403 Permission Denied** — your GitHub token is read-only.\n\n"
-            "Fix: Go to **GitHub → Settings → Developer settings → "
-            "Personal access tokens → Tokens (classic)**, create a new token "
-            "with the **`repo`** scope, then update **GITHUB_TOKEN** in "
-            "Streamlit → Manage app → Settings → Secrets."
-        )
-    return False, f"GitHub push failed ({r.status_code}): {r.text[:200]}"
+        data = {"message": "update stocks", "content": content, "sha": sha}
+        r = requests.put(url, headers=headers, json=data, timeout=30)
+        if r.status_code in (200, 201):
+            return True, None
+        if r.status_code == 403:
+            return False, (
+                "**403 Permission Denied** — your GitHub token is read-only.\n\n"
+                "Fix: Go to **GitHub → Settings → Developer settings → "
+                "Personal access tokens → Tokens (classic)**, create a new token "
+                "with the **`repo`** scope, then update **GITHUB_TOKEN** in "
+                "Streamlit → Manage app → Settings → Secrets."
+            )
+        return False, f"GitHub push failed ({r.status_code}): {r.text[:200]}"
+    except Exception as e:
+        return False, f"Unexpected error during save: {e}"
 
 
 # ── Data loading ──────────────────────────────────────────────────
@@ -330,6 +333,7 @@ def load_data():
         "Authorization":        f"Bearer {token}",
         "Accept":               "application/vnd.github.raw+json",
         "X-GitHub-Api-Version": "2022-11-28",
+        "Cache-Control":        "no-cache",
     }
     try:
         r = requests.get(url, headers=headers, timeout=20)
@@ -379,7 +383,9 @@ def main():
                      help="Pull the latest stocks.xlsx from GitHub"):
             load_data.clear()
             st.rerun()
-        st.caption("Data auto-refreshes every 5 min. Press Refresh for immediate update.")
+        st.caption(
+            "Added a ticker from the desktop app? Press **Refresh Data** to see it here."
+        )
         st.divider()
 
         with st.spinner("Loading data..."):
@@ -399,6 +405,14 @@ def main():
 
         # ── Add New Ticker ─────────────────────────────────────────
         with st.expander("➕ Add New Ticker"):
+            # Show persistent result from previous action
+            if st.session_state.get("add_result"):
+                kind, msg = st.session_state.pop("add_result")
+                if kind == "ok":
+                    st.success(msg)
+                else:
+                    st.error(msg)
+
             new_sym = st.text_input(
                 "Ticker symbol (e.g. AAPL, TD.TO)", key="new_sym"
             ).strip().upper()
@@ -418,11 +432,15 @@ def main():
                             ).sort_values("Stock Ticker").reset_index(drop=True)
                             ok, push_err = push_df_to_github(updated)
                         if ok:
-                            st.success(f"✓ {new_sym} added!")
+                            st.session_state["add_result"] = (
+                                "ok",
+                                f"✓ {new_sym} added! Select it from the Ticker dropdown.",
+                            )
                             load_data.clear()
                             st.rerun()
                         else:
-                            st.error(push_err)
+                            st.session_state["add_result"] = ("err", push_err)
+                            st.rerun()
 
         # ── Customize Layout ───────────────────────────────────────
         with st.expander("🎨 Customize Layout"):
@@ -538,12 +556,21 @@ def main():
             disp, css = fmt_value(field, raw)
 
             if field == "Company Description":
-                st.caption("Company Description")
-                if css == "na":
-                    st.markdown('<span class="na">N/A</span>',
-                                unsafe_allow_html=True)
-                else:
-                    st.write(str(raw))
+                c1, c2 = st.columns([2, 3])
+                with c1:
+                    st.markdown(
+                        f'<span style="color:#6a85a0;font-size:{font_sz}px">Company Description</span>',
+                        unsafe_allow_html=True,
+                    )
+                with c2:
+                    if css == "na":
+                        st.markdown('<span class="na">N/A</span>',
+                                    unsafe_allow_html=True)
+                    else:
+                        desc = str(raw)
+                        preview = desc[:120] + "…" if len(desc) > 120 else desc
+                        with st.expander(preview, expanded=False):
+                            st.write(desc)
                 continue
 
             if field == "Company Name":
