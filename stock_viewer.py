@@ -866,6 +866,16 @@ class App(tk.Tk):
 
         tk.Frame(sb, bg=P["C_BORDER"], height=1).pack(fill="x", padx=18, pady=10)
 
+        # Push to GitHub button
+        tk.Button(sb, text="↑  Push to GitHub",
+                  bg="#2e7d32", fg=P["C_WHITE"],
+                  font=(P["FONT"], 10, "bold"),
+                  relief="flat", cursor="hand2",
+                  padx=10, pady=8,
+                  activebackground="#388e3c",
+                  command=self._push_to_github
+                  ).pack(fill="x", padx=18, pady=(0, 6))
+
         # Sync from GitHub button
         tk.Button(sb, text="↓  Sync from GitHub",
                   bg=P["C_ACCENT"], fg=P["C_WHITE"],
@@ -966,6 +976,20 @@ class App(tk.Tk):
             spacing1=5, spacing3=5)
         T.tag_configure("foot",
             font=(F, Z - 1, "italic"), foreground="#9ab0c5", spacing1=18)
+
+    # ── Push to GitHub ────────────────────────────────────────
+    def _push_to_github(self):
+        if not self.filepath:
+            messagebox.showerror("No File", "No Excel file is loaded.")
+            return
+        try:
+            git_push_excel(self.filepath, ticker="manual push")
+            messagebox.showinfo(
+                "Pushed",
+                "stocks.xlsx pushed to GitHub.\n"
+                "Press Refresh Data on the web to see changes.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Push failed:\n{e}")
 
     # ── Sync from GitHub ──────────────────────────────────────
     def _sync_from_github(self):
