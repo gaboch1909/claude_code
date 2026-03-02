@@ -15,17 +15,20 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Field definitions ─────────────────────────────────────────────────────────
+# ── Field definitions (matches desktop app) ───────────────────────
 FIELD_GROUPS = {
-    "Overview":      ["Company Name", "Company Description", "Mkt Cap/Net Assets (M)", "Last Updated"],
-    "Price":         ["Price", "Prev Close", "Change %", "Day High", "Day Low"],
-    "Earnings":      ["EPS (TTM)"],
-    "Revenue":       ["Revenue TTM (M)", "Revenue 1Y (M)", "Revenue 3Y (M)", "Revenue 5Y (M)"],
-    "Net Income":    ["Net Income TTM (M)", "Net Income 1Y (M)", "Net Income 3Y (M)", "Net Income 5Y (M)"],
+    "Company Info":  ["Company Name", "Company Description"],
+    "Market Data":   ["Mkt Cap/Net Assets (M)", "Price", "Prev Close",
+                      "Change %", "Day High", "Day Low", "EPS (TTM)"],
+    "Revenue":       ["Revenue TTM (M)", "Revenue 1Y (M)",
+                      "Revenue 3Y (M)", "Revenue 5Y (M)"],
+    "Net Income":    ["Net Income TTM (M)", "Net Income 1Y (M)",
+                      "Net Income 3Y (M)", "Net Income 5Y (M)"],
     "Balance Sheet": ["Total Debt (M)", "Cash (M)"],
+    "Other":         ["Last Updated"],
 }
 
-PRICE_FIELDS   = {"Price", "Prev Close", "Day High", "Day Low"}
+PRICE_FIELDS   = {"Price", "Prev Close", "Day High", "Day Low", "EPS (TTM)"}
 MILLION_FIELDS = {
     "Mkt Cap/Net Assets (M)",
     "Revenue TTM (M)", "Revenue 1Y (M)", "Revenue 3Y (M)", "Revenue 5Y (M)",
@@ -33,11 +36,60 @@ MILLION_FIELDS = {
     "Total Debt (M)", "Cash (M)",
 }
 
-# Shown as metric cards at the top of the report
+# Top metric cards (shown as big cards at the top of the report)
 TOP_METRICS = ["Price", "Change %", "Mkt Cap/Net Assets (M)", "Day High", "Day Low"]
 
+# All fields in display order
+ALL_FIELDS = [f for fields in FIELD_GROUPS.values() for f in fields]
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+
+# ── Theme ─────────────────────────────────────────────────────────
+THEME_DEFAULTS = {
+    "accent":  "#1F4E79",
+    "pos":     "#2e7d32",
+    "neg":     "#c62828",
+    "na":      "#c62828",
+    "font_sz": 16,
+}
+
+THEME_PRESETS = {
+    "Dark Navy (default)": {"accent": "#1F4E79", "pos": "#2e7d32", "neg": "#c62828", "na": "#c62828", "font_sz": 16},
+    "Steel Blue":          {"accent": "#1565c0", "pos": "#2e7d32", "neg": "#b71c1c", "na": "#b71c1c", "font_sz": 16},
+    "Forest Green":        {"accent": "#2e7d32", "pos": "#1565c0", "neg": "#c62828", "na": "#c62828", "font_sz": 16},
+    "Deep Purple":         {"accent": "#4a148c", "pos": "#00695c", "neg": "#c62828", "na": "#c62828", "font_sz": 16},
+    "Charcoal":            {"accent": "#37474f", "pos": "#388e3c", "neg": "#d32f2f", "na": "#d32f2f", "font_sz": 16},
+}
+
+# Maps theme keys → color picker widget keys
+_CP_KEYS = {"accent": "cp_accent", "pos": "cp_pos", "neg": "cp_neg", "na": "cp_na"}
+
+
+def _init_theme():
+    """Seed session state with defaults on first run."""
+    for k, v in THEME_DEFAULTS.items():
+        if f"theme_{k}" not in st.session_state:
+            st.session_state[f"theme_{k}"] = v
+        if k in _CP_KEYS and _CP_KEYS[k] not in st.session_state:
+            st.session_state[_CP_KEYS[k]] = v
+    if "sl_font" not in st.session_state:
+        st.session_state["sl_font"] = THEME_DEFAULTS["font_sz"]
+
+
+def _t(key):
+    return st.session_state.get(f"theme_{key}", THEME_DEFAULTS[key])
+
+
+def _apply_preset(preset_dict):
+    """Apply a preset or defaults dict, updating both theme_ and widget keys."""
+    for k, v in preset_dict.items():
+        st.session_state[f"theme_{k}"] = v
+        if k in _CP_KEYS:
+            st.session_state[_CP_KEYS[k]] = v
+        if k == "font_sz":
+            st.session_state["sl_font"] = v
+
+
+# ── Helpers ───────────────────────────────────────────────────────
 def is_na(raw):
     if raw is None:
         return True
@@ -47,7 +99,7 @@ def is_na(raw):
 
 
 def fmt_value(field, raw):
-    """Return (display_string, css_class).  css_class is 'na', 'pos', 'neg', or ''."""
+    """Return (display_string, css_class). css_class is 'na', 'pos', 'neg', or ''."""
     if is_na(raw):
         return "N/A", "na"
     try:
@@ -57,14 +109,14 @@ def fmt_value(field, raw):
             return s, "pos" if v >= 0 else "neg"
         if field in MILLION_FIELDS:
             return f"${v:,.2f} M", ""
-        if field in PRICE_FIELDS or field == "EPS (TTM)":
+        if field in PRICE_FIELDS:
             return f"${v:,.2f}", ""
     except (ValueError, TypeError):
         pass
     return str(raw), ""
 
 
-# ── yfinance fetch ────────────────────────────────────────────────────────────
+# ── yfinance fetch ────────────────────────────────────────────────
 def _safe_m(v):
     try:
         f = float(v)
@@ -153,15 +205,15 @@ def fetch_ticker(symbol, retries=3, base_delay=5):
             }, None
 
         except Exception as e:
-            err = str(e)
-            if any(k in err.lower() for k in ("too many requests", "rate limit", "429")):
+            err_str = str(e)
+            if any(k in err_str.lower() for k in ("too many requests", "rate limit", "429")):
                 time.sleep(base_delay * (2 ** attempt))
             else:
                 return None, f"Error: {e}"
     return None, "Rate limited. Wait a moment and try again."
 
 
-# ── GitHub write-back ─────────────────────────────────────────────────────────
+# ── GitHub write-back ─────────────────────────────────────────────
 def push_df_to_github(df):
     """Save the DataFrame as stocks.xlsx and push it back to GitHub."""
     try:
@@ -177,13 +229,11 @@ def push_df_to_github(df):
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-    # Get current file SHA (required for update)
     r = requests.get(url, headers=headers, timeout=15)
     if r.status_code != 200:
-        return False, f"Could not read file from GitHub: {r.status_code}"
+        return False, f"GitHub read failed ({r.status_code}): {r.text[:200]}"
     sha = r.json().get("sha", "")
 
-    # Serialise DataFrame → xlsx bytes → base64
     buf = io.BytesIO()
     df.to_excel(buf, index=False)
     content = base64.b64encode(buf.getvalue()).decode()
@@ -192,13 +242,21 @@ def push_df_to_github(df):
     r = requests.put(url, headers=headers, json=data, timeout=30)
     if r.status_code in (200, 201):
         return True, None
+    if r.status_code == 403:
+        return False, (
+            "**403 Permission Denied** — your GitHub token is read-only.\n\n"
+            "Fix: Go to **GitHub → Settings → Developer settings → "
+            "Personal access tokens → Tokens (classic)**, create a new token "
+            "with the **`repo`** scope, then update **GITHUB_TOKEN** in "
+            "Streamlit → Manage app → Settings → Secrets."
+        )
     return False, f"GitHub push failed ({r.status_code}): {r.text[:200]}"
 
 
-# ── Data loading ──────────────────────────────────────────────────────────────
+# ── Data loading ──────────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner=False)
 def load_data():
-    """Fetch stocks.xlsx from the private GitHub repo using stored secrets."""
+    """Fetch stocks.xlsx from the GitHub repo using stored secrets."""
     try:
         token = st.secrets["GITHUB_TOKEN"]
         owner = st.secrets["GITHUB_OWNER"]
@@ -221,61 +279,38 @@ def load_data():
         return None, f"Connection error: {e}"
 
 
-# ── Theme defaults ────────────────────────────────────────────────────────────
-THEME_DEFAULTS = {
-    "accent":   "#1F4E79",
-    "pos":      "#27ae60",
-    "neg":      "#c0392b",
-    "na":       "#c0392b",
-    "font_sz":  16,
-}
-
-THEME_PRESETS = {
-    "Dark Navy (default)": {"accent": "#1F4E79", "pos": "#27ae60", "neg": "#c0392b", "na": "#c0392b", "font_sz": 16},
-    "Steel Blue":          {"accent": "#1565c0", "pos": "#2e7d32", "neg": "#b71c1c", "na": "#b71c1c", "font_sz": 16},
-    "Forest Green":        {"accent": "#2e7d32", "pos": "#1565c0", "neg": "#c62828", "na": "#c62828", "font_sz": 16},
-    "Deep Purple":         {"accent": "#4a148c", "pos": "#00695c", "neg": "#c62828", "na": "#c62828", "font_sz": 16},
-    "Charcoal":            {"accent": "#37474f", "pos": "#388e3c", "neg": "#d32f2f", "na": "#d32f2f", "font_sz": 16},
-}
-
-
-def _init_theme():
-    for k, v in THEME_DEFAULTS.items():
-        if f"theme_{k}" not in st.session_state:
-            st.session_state[f"theme_{k}"] = v
-
-
-def _t(key):
-    return st.session_state.get(f"theme_{key}", THEME_DEFAULTS[key])
-
-
-# ── App ───────────────────────────────────────────────────────────────────────
+# ── App ───────────────────────────────────────────────────────────
 def main():
     _init_theme()
 
+    # Read theme values — these were written by widgets on the previous rerun
     accent  = _t("accent")
     pos_col = _t("pos")
     neg_col = _t("neg")
     na_col  = _t("na")
     font_sz = _t("font_sz")
 
+    # Inject CSS — uses current theme values
     st.markdown(f"""
     <style>
-    .na  {{ color: {na_col};  font-style: italic; }}
-    .pos {{ color: {pos_col}; font-weight: 700; }}
-    .neg {{ color: {neg_col}; font-weight: 700; }}
+    .na   {{ color: {na_col}  !important; font-style: italic; }}
+    .pos  {{ color: {pos_col} !important; font-weight: 700; }}
+    .neg  {{ color: {neg_col} !important; font-weight: 700; }}
     .section-hdr {{
-        background: {accent}; color: white;
-        padding: 5px 12px; border-radius: 5px;
-        font-size: {font_sz - 2}px; font-weight: 700;
-        margin: 14px 0 6px 0; letter-spacing: 0.04em;
+        background: {accent} !important;
+        color: #ffffff !important;
+        padding: 6px 14px;
+        border-radius: 5px;
+        font-size: {font_sz - 1}px;
+        font-weight: 700;
+        margin: 16px 0 8px 0;
+        letter-spacing: 0.04em;
     }}
-    .report-text {{ font-size: {font_sz}px; }}
     div[data-testid="metric-container"] {{ padding: 8px 10px !important; }}
     </style>
     """, unsafe_allow_html=True)
 
-    # ── Sidebar ────────────────────────────────────────────────────────────────
+    # ── Sidebar ────────────────────────────────────────────────────
     with st.sidebar:
         st.title("📈 Stock Viewer")
 
@@ -287,10 +322,10 @@ def main():
         st.divider()
 
         with st.spinner("Loading data..."):
-            df, err = load_data()
+            df, load_err = load_data()
 
-        if err:
-            st.error(err)
+        if load_err:
+            st.error(load_err)
             st.stop()
         if df is None or df.empty:
             st.warning("stocks.xlsx is empty or missing from the repository.")
@@ -300,56 +335,89 @@ def main():
         selected = st.selectbox("Ticker", tickers)
 
         st.divider()
+
+        # ── Add New Ticker ─────────────────────────────────────────
         with st.expander("➕ Add New Ticker"):
-            new_sym = st.text_input("Ticker symbol (e.g. AAPL, TD.TO)",
-                                    key="new_sym").strip().upper()
+            new_sym = st.text_input(
+                "Ticker symbol (e.g. AAPL, TD.TO)", key="new_sym"
+            ).strip().upper()
             if st.button("Fetch & Add", use_container_width=True, key="btn_add"):
                 if not new_sym:
                     st.warning("Enter a ticker symbol.")
                 else:
                     with st.spinner(f"Fetching {new_sym}…"):
-                        data, err = fetch_ticker(new_sym)
-                    if err:
-                        st.error(err)
+                        data, fetch_err = fetch_ticker(new_sym)
+                    if fetch_err:
+                        st.error(fetch_err)
                     else:
-                        # Update or append row
-                        updated = df[df["Stock Ticker"] != new_sym].copy()
-                        updated = pd.concat(
-                            [updated, pd.DataFrame([data])], ignore_index=True
-                        ).sort_values("Stock Ticker").reset_index(drop=True)
-                        ok, push_err = push_df_to_github(updated)
+                        with st.spinner("Saving to GitHub…"):
+                            updated = df[df["Stock Ticker"] != new_sym].copy()
+                            updated = pd.concat(
+                                [updated, pd.DataFrame([data])], ignore_index=True
+                            ).sort_values("Stock Ticker").reset_index(drop=True)
+                            ok, push_err = push_df_to_github(updated)
                         if ok:
                             st.success(f"✓ {new_sym} added!")
                             load_data.clear()
                             st.rerun()
                         else:
-                            st.error(f"Saved locally but push failed: {push_err}")
+                            st.error(push_err)
 
-        st.divider()
+        # ── Customize Layout ───────────────────────────────────────
         with st.expander("🎨 Customize Layout"):
-            preset = st.selectbox("Theme preset", list(THEME_PRESETS.keys()), key="preset_sel")
-            if st.button("Apply preset", use_container_width=True, key="btn_preset"):
-                for k, v in THEME_PRESETS[preset].items():
-                    st.session_state[f"theme_{k}"] = v
+            preset_names = list(THEME_PRESETS.keys())
+            preset = st.selectbox("Theme preset", preset_names, key="preset_sel")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Apply", use_container_width=True, key="btn_preset"):
+                    _apply_preset(THEME_PRESETS[preset])
+                    st.rerun()
+            with col2:
+                if st.button("↺ Defaults", use_container_width=True, key="btn_reset_theme"):
+                    _apply_preset(THEME_DEFAULTS)
+                    st.rerun()
+
+            st.markdown("**Colors**")
+
+            new_accent = st.color_picker("Section headers", _t("accent"), key="cp_accent")
+            if new_accent != _t("accent"):
+                st.session_state["theme_accent"] = new_accent
                 st.rerun()
-            st.markdown("**Custom colors**")
-            st.session_state["theme_accent"] = st.color_picker(
-                "Section headers", _t("accent"), key="cp_accent")
-            st.session_state["theme_pos"] = st.color_picker(
-                "Positive values", _t("pos"), key="cp_pos")
-            st.session_state["theme_neg"] = st.color_picker(
-                "Negative values", _t("neg"), key="cp_neg")
-            st.session_state["theme_na"] = st.color_picker(
-                "N/A values", _t("na"), key="cp_na")
-            st.session_state["theme_font_sz"] = st.slider(
-                "Font size", 12, 22, _t("font_sz"), key="sl_font")
-            if st.button("↺ Reset defaults", use_container_width=True, key="btn_reset_theme"):
-                for k, v in THEME_DEFAULTS.items():
-                    st.session_state[f"theme_{k}"] = v
+
+            new_pos = st.color_picker("Positive values", _t("pos"), key="cp_pos")
+            if new_pos != _t("pos"):
+                st.session_state["theme_pos"] = new_pos
+                st.rerun()
+
+            new_neg = st.color_picker("Negative values", _t("neg"), key="cp_neg")
+            if new_neg != _t("neg"):
+                st.session_state["theme_neg"] = new_neg
+                st.rerun()
+
+            new_na = st.color_picker("N/A values", _t("na"), key="cp_na")
+            if new_na != _t("na"):
+                st.session_state["theme_na"] = new_na
+                st.rerun()
+
+            new_sz = st.slider("Font size", 12, 22, _t("font_sz"), key="sl_font")
+            if new_sz != _t("font_sz"):
+                st.session_state["theme_font_sz"] = new_sz
                 st.rerun()
 
         st.divider()
+
+        # ── Fields to display ──────────────────────────────────────
         st.markdown("**Fields to display**")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Select All", use_container_width=True, key="btn_sel_all"):
+                for f in ALL_FIELDS:
+                    st.session_state[f"chk_{f}"] = True
+        with c2:
+            if st.button("Clear All", use_container_width=True, key="btn_clr_all"):
+                for f in ALL_FIELDS:
+                    st.session_state[f"chk_{f}"] = False
+
         chosen = []
         for group, fields in FIELD_GROUPS.items():
             with st.expander(group, expanded=True):
@@ -357,7 +425,7 @@ def main():
                     if st.checkbox(field, value=True, key=f"chk_{field}"):
                         chosen.append(field)
 
-    # ── Main panel ─────────────────────────────────────────────────────────────
+    # ── Main panel ─────────────────────────────────────────────────
     row_df = df[df["Stock Ticker"] == selected]
     if row_df.empty:
         st.warning(f"No data found for {selected}.")
@@ -375,7 +443,7 @@ def main():
 
     st.divider()
 
-    # ── Metric cards (Price block) ─────────────────────────────────────────────
+    # ── Metric cards (Price block) ─────────────────────────────────
     metric_show = [f for f in TOP_METRICS if f in chosen]
     if metric_show:
         cols = st.columns(len(metric_show))
@@ -384,42 +452,60 @@ def main():
             disp, css = fmt_value(field, raw)
             with col:
                 if field == "Change %" and css in ("pos", "neg"):
-                    v = float(raw)
-                    st.metric(label=field, value=disp,
-                              delta=f"{v:+.2f}%", delta_color="normal")
+                    try:
+                        v = float(raw)
+                        st.metric(label=field, value=disp,
+                                  delta=f"{v:+.2f}%", delta_color="normal")
+                    except Exception:
+                        st.metric(label=field, value=disp)
                 else:
                     st.metric(label=field, value=disp)
         st.divider()
 
-    # ── Remaining sections ─────────────────────────────────────────────────────
+    # ── Report sections ────────────────────────────────────────────
     skip = set(TOP_METRICS)
     for group, fields in FIELD_GROUPS.items():
         section = [f for f in fields if f in chosen and f not in skip]
         if not section:
             continue
 
-        st.markdown(f'<div class="section-hdr">{group}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-hdr">{group.upper()}</div>',
+                    unsafe_allow_html=True)
 
-        for field in section:
+        for i, field in enumerate(section):
             raw  = row.get(field)
             disp, css = fmt_value(field, raw)
 
             if field == "Company Description":
-                st.caption(field)
+                st.caption("Company Description")
                 if css == "na":
-                    st.markdown('<span class="na">N/A</span>', unsafe_allow_html=True)
+                    st.markdown('<span class="na">N/A</span>',
+                                unsafe_allow_html=True)
                 else:
                     st.write(str(raw))
                 continue
 
+            if field == "Company Name":
+                # Already shown as the page header — skip duplicate row
+                continue
+
             c1, c2 = st.columns([2, 3])
             with c1:
-                st.caption(field)
+                st.markdown(
+                    f'<span style="color:#6a85a0;font-size:{font_sz}px">{field}</span>',
+                    unsafe_allow_html=True,
+                )
             with c2:
                 if css:
-                    st.markdown(f'<span class="{css}">{disp}</span>', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<span class="{css}" style="font-size:{font_sz}px">{disp}</span>',
+                        unsafe_allow_html=True,
+                    )
                 else:
-                    st.write(disp)
+                    st.markdown(
+                        f'<span style="font-size:{font_sz}px;font-weight:600">{disp}</span>',
+                        unsafe_allow_html=True,
+                    )
 
         st.markdown("")  # spacer between sections
 
