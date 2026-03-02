@@ -343,9 +343,11 @@ def load_data():
         "Accept":               "application/vnd.github.raw+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "Cache-Control":        "no-cache",
+        "Pragma":               "no-cache",
     }
     try:
-        r = requests.get(url, headers=headers, timeout=20)
+        # Timestamp query param forces CDN cache bypass on every real fetch
+        r = requests.get(f"{url}?_={int(time.time())}", headers=headers, timeout=20)
         if r.status_code == 200:
             return pd.read_excel(io.BytesIO(r.content)), None
         return None, f"GitHub API error {r.status_code}: {r.text[:300]}"
@@ -407,22 +409,22 @@ def main():
             st.warning("stocks.xlsx is empty or missing from the repository.")
             st.stop()
 
+        # ── Action results (always visible, outside expanders) ────
+        for _key in ("add_result", "del_result"):
+            if st.session_state.get(_key):
+                _kind, _msg = st.session_state.pop(_key)
+                if _kind == "ok":
+                    st.success(_msg)
+                else:
+                    st.error(_msg)
+
         tickers = sorted(df["Stock Ticker"].dropna().astype(str).unique())
         selected = st.selectbox("Ticker", tickers)
 
         st.divider()
 
         # ── Add New Ticker ─────────────────────────────────────────
-        has_add_result = bool(st.session_state.get("add_result"))
-        with st.expander("➕ Add New Ticker", expanded=has_add_result):
-            # Show persistent result from previous action
-            if st.session_state.get("add_result"):
-                kind, msg = st.session_state.pop("add_result")
-                if kind == "ok":
-                    st.success(msg)
-                else:
-                    st.error(msg)
-
+        with st.expander("➕ Add New Ticker"):
             new_sym = st.text_input(
                 "Ticker symbol (e.g. AAPL, TD.TO)", key="new_sym"
             ).strip().upper()
@@ -447,6 +449,7 @@ def main():
                                 "ok",
                                 f"✓ {new_sym} added! Select it from the Ticker dropdown.",
                             )
+                            time.sleep(1)
                             load_data.clear()
                             st.rerun()
                         else:
@@ -454,17 +457,8 @@ def main():
                             st.rerun()
 
         # ── Delete Ticker ──────────────────────────────────────────
-        has_del_result = bool(st.session_state.get("del_result"))
-        with st.expander("🗑️ Delete Ticker", expanded=has_del_result):
-            # Show persistent result from previous action
-            if st.session_state.get("del_result"):
-                kind, msg = st.session_state.pop("del_result")
-                if kind == "ok":
-                    st.success(msg)
-                else:
-                    st.error(msg)
-
-            st.warning(f"This will permanently remove **{selected}** from the Excel file.")
+        with st.expander("🗑️ Delete Ticker"):
+            st.warning(f"Permanently remove **{selected}** from the Excel file?")
             if st.button("Confirm Delete", use_container_width=True,
                          key="btn_del", type="primary"):
                 with st.spinner(f"Deleting {selected}…"):
@@ -474,6 +468,7 @@ def main():
                     st.session_state["del_result"] = (
                         "ok", f"✓ {selected} deleted successfully."
                     )
+                    time.sleep(1)
                     load_data.clear()
                     st.rerun()
                 else:
