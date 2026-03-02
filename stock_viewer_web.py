@@ -284,37 +284,46 @@ def push_df_to_github(df):
     except KeyError as e:
         return False, f"Missing secret: {e}"
 
-    try:
-        url = f"https://api.github.com/repos/{owner}/{repo}/contents/stocks.xlsx"
-        headers = {
-            "Authorization":        f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/stocks.xlsx"
+    req_headers = {
+        "Authorization":        f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
 
-        r = requests.get(url, headers=headers, timeout=15)
-        if r.status_code != 200:
-            return False, f"GitHub read failed ({r.status_code}): {r.text[:200]}"
-        sha = r.json().get("sha", "")
+    # Serialize once — reused across retry attempts
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False)
+    content = base64.b64encode(buf.getvalue()).decode()
 
-        buf = io.BytesIO()
-        df.to_excel(buf, index=False)
-        content = base64.b64encode(buf.getvalue()).decode()
+    last_err = ""
+    for attempt in range(3):
+        try:
+            r = requests.get(url, headers=req_headers, timeout=15)
+            if r.status_code != 200:
+                return False, f"GitHub read failed ({r.status_code}): {r.text[:200]}"
+            sha = r.json().get("sha", "")
 
-        data = {"message": "update stocks", "content": content, "sha": sha}
-        r = requests.put(url, headers=headers, json=data, timeout=30)
-        if r.status_code in (200, 201):
-            return True, None
-        if r.status_code == 403:
-            return False, (
-                "**403 Permission Denied** — your GitHub token is read-only.\n\n"
-                "Fix: Go to **GitHub → Settings → Developer settings → "
-                "Personal access tokens → Tokens (classic)**, create a new token "
-                "with the **`repo`** scope, then update **GITHUB_TOKEN** in "
-                "Streamlit → Manage app → Settings → Secrets."
-            )
-        return False, f"GitHub push failed ({r.status_code}): {r.text[:200]}"
-    except Exception as e:
-        return False, f"Unexpected error during save: {e}"
+            data = {"message": "update stocks", "content": content, "sha": sha}
+            r = requests.put(url, headers=req_headers, json=data, timeout=30)
+            if r.status_code in (200, 201):
+                return True, None
+            if r.status_code == 409:
+                # SHA conflict — another process updated the file; retry with fresh SHA
+                last_err = f"SHA conflict on attempt {attempt + 1}"
+                time.sleep(1)
+                continue
+            if r.status_code == 403:
+                return False, (
+                    "**403 Permission Denied** — your GitHub token is read-only.\n\n"
+                    "Fix: Go to **GitHub → Settings → Developer settings → "
+                    "Personal access tokens → Tokens (classic)**, create a new token "
+                    "with the **`repo`** scope, then update **GITHUB_TOKEN** in "
+                    "Streamlit → Manage app → Settings → Secrets."
+                )
+            return False, f"GitHub push failed ({r.status_code}): {r.text[:200]}"
+        except Exception as e:
+            return False, f"Unexpected error during save: {e}"
+    return False, f"Could not save after 3 attempts ({last_err}). Try again."
 
 
 # ── Data loading ──────────────────────────────────────────────────
@@ -404,7 +413,8 @@ def main():
         st.divider()
 
         # ── Add New Ticker ─────────────────────────────────────────
-        with st.expander("➕ Add New Ticker"):
+        has_add_result = bool(st.session_state.get("add_result"))
+        with st.expander("➕ Add New Ticker", expanded=has_add_result):
             # Show persistent result from previous action
             if st.session_state.get("add_result"):
                 kind, msg = st.session_state.pop("add_result")
@@ -423,7 +433,8 @@ def main():
                     with st.spinner(f"Fetching {new_sym}…"):
                         data, fetch_err = fetch_ticker(new_sym)
                     if fetch_err:
-                        st.error(fetch_err)
+                        st.session_state["add_result"] = ("err", fetch_err)
+                        st.rerun()
                     else:
                         with st.spinner("Saving to GitHub…"):
                             updated = df[df["Stock Ticker"] != new_sym].copy()
@@ -441,6 +452,33 @@ def main():
                         else:
                             st.session_state["add_result"] = ("err", push_err)
                             st.rerun()
+
+        # ── Delete Ticker ──────────────────────────────────────────
+        has_del_result = bool(st.session_state.get("del_result"))
+        with st.expander("🗑️ Delete Ticker", expanded=has_del_result):
+            # Show persistent result from previous action
+            if st.session_state.get("del_result"):
+                kind, msg = st.session_state.pop("del_result")
+                if kind == "ok":
+                    st.success(msg)
+                else:
+                    st.error(msg)
+
+            st.warning(f"This will permanently remove **{selected}** from the Excel file.")
+            if st.button("Confirm Delete", use_container_width=True,
+                         key="btn_del", type="primary"):
+                with st.spinner(f"Deleting {selected}…"):
+                    updated = df[df["Stock Ticker"] != selected].copy().reset_index(drop=True)
+                    ok, push_err = push_df_to_github(updated)
+                if ok:
+                    st.session_state["del_result"] = (
+                        "ok", f"✓ {selected} deleted successfully."
+                    )
+                    load_data.clear()
+                    st.rerun()
+                else:
+                    st.session_state["del_result"] = ("err", push_err)
+                    st.rerun()
 
         # ── Customize Layout ───────────────────────────────────────
         with st.expander("🎨 Customize Layout"):
