@@ -133,10 +133,22 @@ def _safe_v(v):
         return "N/A"
 
 
-def _get_annual(fin, row, idx):
+_REV_ROWS = ["Total Revenue", "Operating Revenue", "TotalRevenue",
+             "Net Interest Income", "Revenue"]
+_NI_ROWS  = ["Net Income", "Net Income Common Stockholders",
+             "Net Income From Continuing Operations", "NetIncome",
+             "Net Income Including Noncontrolling Interests"]
+
+
+def _get_annual(fin, row_names, idx):
+    """Try multiple row-name variants — handles US, Canadian, and ETF financials."""
+    if isinstance(row_names, str):
+        row_names = [row_names]
     try:
-        if fin is not None and not fin.empty and row in fin.index and fin.shape[1] > idx:
-            return _safe_m(fin.iloc[:, idx][row])
+        if fin is not None and not fin.empty and fin.shape[1] > idx:
+            for row in row_names:
+                if row in fin.index:
+                    return _safe_m(fin.iloc[:, idx].get(row))
     except Exception:
         pass
     return "N/A"
@@ -175,10 +187,59 @@ def fetch_ticker(symbol, retries=3, base_delay=5):
             except Exception:
                 chg = "N/A"
 
-            try:
-                fin = t.financials
-            except Exception:
-                fin = None
+            # Income statement — try newer API first, fall back to older
+            fin = None
+            for attr in ("income_stmt", "financials"):
+                try:
+                    f = getattr(t, attr)
+                    if f is not None and not f.empty:
+                        fin = f
+                        break
+                except Exception:
+                    pass
+
+            # Balance sheet for debt / cash fallback
+            bs = None
+            for attr in ("balance_sheet", "quarterly_balance_sheet"):
+                try:
+                    b = getattr(t, attr)
+                    if b is not None and not b.empty:
+                        bs = b
+                        break
+                except Exception:
+                    pass
+
+            # EPS — with calculated fallback
+            eps = _safe_v(info.get("trailingEps"))
+            if eps == "N/A":
+                try:
+                    ni = info.get("netIncomeToCommon")
+                    sh = info.get("sharesOutstanding")
+                    if ni and sh:
+                        eps = round(float(ni) / float(sh), 4)
+                except Exception:
+                    pass
+
+            # Debt — with balance sheet fallback
+            total_debt = _safe_m(info.get("totalDebt"))
+            if total_debt == "N/A" and bs is not None and not bs.empty:
+                for rn in ("Total Debt", "TotalDebt", "Net Debt", "Long Term Debt"):
+                    if rn in bs.index:
+                        v = _safe_m(bs.iloc[:, 0].get(rn))
+                        if v != "N/A":
+                            total_debt = v
+                            break
+
+            # Cash — with balance sheet fallback
+            cash = _safe_m(info.get("totalCash") or info.get("cash"))
+            if cash == "N/A" and bs is not None and not bs.empty:
+                for rn in ("Cash And Cash Equivalents", "Cash",
+                           "Cash Cash Equivalents And Short Term Investments"):
+                    if rn in bs.index:
+                        v = _safe_m(bs.iloc[:, 0].get(rn))
+                        if v != "N/A":
+                            cash = v
+                            break
 
             return {
                 "Stock Ticker":           symbol.upper(),
@@ -190,17 +251,17 @@ def fetch_ticker(symbol, retries=3, base_delay=5):
                 "Change %":               chg,
                 "Day High":               _safe_v(info.get("dayHigh") or info.get("regularMarketDayHigh")),
                 "Day Low":                _safe_v(info.get("dayLow") or info.get("regularMarketDayLow")),
-                "EPS (TTM)":              _safe_v(info.get("trailingEps")),
+                "EPS (TTM)":              eps,
                 "Revenue TTM (M)":        _safe_m(info.get("totalRevenue")),
-                "Revenue 1Y (M)":         _get_annual(fin, "Total Revenue", 0),
-                "Revenue 3Y (M)":         _get_annual(fin, "Total Revenue", 2),
-                "Revenue 5Y (M)":         _get_annual(fin, "Total Revenue", 4),
+                "Revenue 1Y (M)":         _get_annual(fin, _REV_ROWS, 0),
+                "Revenue 3Y (M)":         _get_annual(fin, _REV_ROWS, 2),
+                "Revenue 5Y (M)":         _get_annual(fin, _REV_ROWS, 4),
                 "Net Income TTM (M)":     _safe_m(info.get("netIncomeToCommon")),
-                "Net Income 1Y (M)":      _get_annual(fin, "Net Income", 0),
-                "Net Income 3Y (M)":      _get_annual(fin, "Net Income", 2),
-                "Net Income 5Y (M)":      _get_annual(fin, "Net Income", 4),
-                "Total Debt (M)":         _safe_m(info.get("totalDebt")),
-                "Cash (M)":               _safe_m(info.get("totalCash")),
+                "Net Income 1Y (M)":      _get_annual(fin, _NI_ROWS, 0),
+                "Net Income 3Y (M)":      _get_annual(fin, _NI_ROWS, 2),
+                "Net Income 5Y (M)":      _get_annual(fin, _NI_ROWS, 4),
+                "Total Debt (M)":         total_debt,
+                "Cash (M)":               cash,
                 "Last Updated":           datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }, None
 
