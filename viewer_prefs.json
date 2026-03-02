@@ -1,0 +1,17 @@
+{
+  "C_BG": "#0d1b2a",
+  "C_SIDEBAR": "#112236",
+  "C_PANEL": "#1a2d42",
+  "C_ACCENT": "#1565c0",
+  "C_ACCENT_LT": "#1e88e5",
+  "C_TEAL": "#00acc1",
+  "C_TEXT": "#dce8f5",
+  "C_MUTED": "#6a8aaa",
+  "C_WHITE": "#ffffff",
+  "C_BORDER": "#1e3450",
+  "C_RPT_BG": "#f4f7fb",
+  "C_GREEN": "#2e7d32",
+  "C_RED": "#c62828",
+  "FONT": "Segoe UI",
+  "FONT_SZ": 10
+}
