@@ -866,6 +866,16 @@ class App(tk.Tk):
 
         tk.Frame(sb, bg=P["C_BORDER"], height=1).pack(fill="x", padx=18, pady=10)
 
+        # Sync from GitHub button
+        tk.Button(sb, text="↓  Sync from GitHub",
+                  bg=P["C_ACCENT"], fg=P["C_WHITE"],
+                  font=(P["FONT"], 10, "bold"),
+                  relief="flat", cursor="hand2",
+                  padx=10, pady=8,
+                  activebackground=P["C_ACCENT_LT"],
+                  command=self._sync_from_github
+                  ).pack(fill="x", padx=18, pady=(0, 6))
+
         # Add Ticker button
         tk.Button(sb, text="＋  Add Another Ticker",
                   bg=P["C_TEAL"], fg=P["C_WHITE"],
@@ -956,6 +966,31 @@ class App(tk.Tk):
             spacing1=5, spacing3=5)
         T.tag_configure("foot",
             font=(F, Z - 1, "italic"), foreground="#9ab0c5", spacing1=18)
+
+    # ── Sync from GitHub ──────────────────────────────────────
+    def _sync_from_github(self):
+        if not self.filepath:
+            messagebox.showerror("No File", "No Excel file is loaded.")
+            return
+        try:
+            repo_dir = os.path.dirname(os.path.abspath(self.filepath))
+            fname    = os.path.basename(self.filepath)
+            # Fetch latest from origin then checkout only stocks.xlsx
+            _git("git", "-C", repo_dir, "fetch", "origin",
+                 capture_output=True)
+            r = _git("git", "-C", repo_dir, "checkout", "origin/main",
+                     "--", fname, capture_output=True, text=True)
+            if r.returncode == 0:
+                self._load(self.filepath)
+                messagebox.showinfo(
+                    "Synced", f"'{fname}' updated from GitHub.\n"
+                              f"{len(self.stock_data)} ticker(s) loaded.")
+            else:
+                messagebox.showerror(
+                    "Sync Failed",
+                    f"Could not sync from GitHub:\n{r.stderr[:300]}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Sync error:\n{e}")
 
     # ── Delete Ticker ─────────────────────────────────────────
     def _delete_ticker(self):

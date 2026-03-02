@@ -395,7 +395,8 @@ def main():
             load_data.clear()
             st.rerun()
         st.caption(
-            "Added a ticker from the desktop app? Press **Refresh Data** to see it here."
+            "Reads from **GitHub**. After any change (web or desktop), "
+            "press Refresh to see it here."
         )
         st.divider()
 
@@ -515,6 +516,42 @@ def main():
             if new_sz != _t("font_sz"):
                 st.session_state["theme_font_sz"] = new_sz
                 st.rerun()
+
+        # ── Debug ─────────────────────────────────────────────────
+        with st.expander("🔧 Debug"):
+            st.caption(f"Cached df: **{len(tickers)}** ticker(s) — {', '.join(tickers)}")
+            if st.button("📡 Check GitHub File Now", use_container_width=True, key="btn_dbg"):
+                try:
+                    token = st.secrets["GITHUB_TOKEN"]
+                    owner = st.secrets["GITHUB_OWNER"]
+                    repo  = st.secrets["GITHUB_REPO"]
+                except KeyError as e:
+                    st.error(f"Missing secret: {e}")
+                else:
+                    try:
+                        url_dbg = (f"https://api.github.com/repos/{owner}/{repo}"
+                                   f"/contents/stocks.xlsx")
+                        hdrs = {"Authorization":        f"Bearer {token}",
+                                "X-GitHub-Api-Version": "2022-11-28"}
+                        r = requests.get(url_dbg, headers=hdrs, timeout=15)
+                        st.write(f"GET status: **{r.status_code}**")
+                        if r.status_code == 200:
+                            j   = r.json()
+                            raw = base64.b64decode(j["content"].replace("\n", ""))
+                            dg  = pd.read_excel(io.BytesIO(raw))
+                            tk_g = dg["Stock Ticker"].dropna().tolist()
+                            st.success(
+                                f"GitHub has **{len(tk_g)}** ticker(s): "
+                                f"{', '.join(tk_g)}"
+                            )
+                            st.caption(
+                                f"SHA: `{j.get('sha','')[:12]}…`  |  "
+                                f"Size: {j.get('size')} bytes"
+                            )
+                        else:
+                            st.error(f"GitHub error: {r.text[:300]}")
+                    except Exception as e:
+                        st.error(f"Debug error: {e}")
 
         st.divider()
 
