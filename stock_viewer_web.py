@@ -327,7 +327,7 @@ def push_df_to_github(df):
 
 
 # ── Data loading ──────────────────────────────────────────────────
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_data():
     """Fetch stocks.xlsx from the GitHub repo using stored secrets."""
     try:
@@ -389,16 +389,6 @@ def main():
     # ── Sidebar ────────────────────────────────────────────────────
     with st.sidebar:
         st.title("📈 Stock Viewer")
-
-        if st.button("🔄 Refresh Data", use_container_width=True,
-                     help="Pull the latest stocks.xlsx from GitHub"):
-            load_data.clear()
-            st.rerun()
-        st.caption(
-            "Reads from **GitHub**. After any change (web or desktop), "
-            "press Refresh to see it here."
-        )
-        st.divider()
 
         with st.spinner("Loading data..."):
             df, load_err = load_data()
