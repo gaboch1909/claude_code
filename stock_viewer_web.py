@@ -409,6 +409,21 @@ def main():
                 else:
                     st.error(_msg)
 
+        # ── Push / Sync buttons ────────────────────────────────────
+        _col1, _col2 = st.columns(2)
+        with _col1:
+            if st.button("↑ Push to GitHub", use_container_width=True, key="btn_push"):
+                with st.spinner("Pushing to GitHub…"):
+                    ok, push_err = push_df_to_github(df)
+                if ok:
+                    st.success("✓ Pushed!")
+                else:
+                    st.error(push_err)
+        with _col2:
+            if st.button("↓ Sync from GitHub", use_container_width=True, key="btn_sync"):
+                load_data.clear()
+                st.rerun()
+
         tickers = sorted(df["Stock Ticker"].dropna().astype(str).unique())
         selected = st.selectbox("Ticker", tickers)
 
