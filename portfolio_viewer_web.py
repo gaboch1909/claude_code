@@ -8,6 +8,7 @@ stock transactions in a browser-based UI with theme customization.
 """
 from __future__ import annotations
 
+import base64
 import contextlib
 import io
 import math
@@ -16,6 +17,7 @@ import time
 from datetime import datetime
 
 import openpyxl
+import requests
 import streamlit as st
 import yfinance as yf
 
@@ -296,6 +298,98 @@ def load_portfolio_bytes(data: bytes) -> dict:
     """Load from uploaded bytes (Streamlit Cloud). Cached 60 s."""
     wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
     return _parse_rows(list(wb[SHEET_NAME].iter_rows(min_row=2, values_only=True)))
+
+
+# ── GitHub integration (same pattern as stock_viewer_web) ────────────────────
+
+_GH_FILENAME = "Gaboch_portfolio.xlsx"
+
+
+def _gh_secrets() -> tuple[str, str, str]:
+    """Return (token, owner, repo) from Streamlit secrets."""
+    return (
+        st.secrets["GITHUB_TOKEN"],
+        st.secrets["GITHUB_OWNER"],
+        st.secrets["GITHUB_REPO"],
+    )
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_portfolio_github() -> tuple[dict, str | None]:
+    """Fetch Gaboch_portfolio.xlsx from the GitHub repo. Returns (portfolio, error)."""
+    try:
+        token, owner, repo = _gh_secrets()
+    except KeyError as exc:
+        return {}, f"Missing Streamlit secret: {exc}"
+
+    url = (
+        f"https://api.github.com/repos/{owner}/{repo}"
+        f"/contents/{_GH_FILENAME}"
+    )
+    headers = {
+        "Authorization":        f"Bearer {token}",
+        "Accept":               "application/vnd.github.raw+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Cache-Control":        "no-cache",
+        "Pragma":               "no-cache",
+    }
+    try:
+        r = requests.get(f"{url}?_={int(time.time())}", headers=headers, timeout=20)
+        if r.status_code == 200:
+            return load_portfolio_bytes(r.content), None
+        if r.status_code == 404:
+            return {}, "not_found"   # sentinel — file not in repo yet
+        return {}, f"GitHub error {r.status_code}: {r.text[:200]}"
+    except Exception as exc:
+        return {}, f"Connection error: {exc}"
+
+
+def push_excel_to_github(data: bytes) -> tuple[bool, str | None]:
+    """Upload Gaboch_portfolio.xlsx to the GitHub repo (creates or updates)."""
+    try:
+        token, owner, repo = _gh_secrets()
+    except KeyError as exc:
+        return False, f"Missing secret: {exc}"
+
+    url = (
+        f"https://api.github.com/repos/{owner}/{repo}"
+        f"/contents/{_GH_FILENAME}"
+    )
+    req_headers = {
+        "Authorization":        f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    content = base64.b64encode(data).decode()
+
+    # Fetch current SHA so we can update (not just create)
+    r = requests.get(url, headers=req_headers, timeout=15)
+    sha = r.json().get("sha", "") if r.status_code == 200 else ""
+
+    payload: dict = {"message": f"update {_GH_FILENAME}", "content": content}
+    if sha:
+        payload["sha"] = sha
+
+    for attempt in range(3):
+        try:
+            r = requests.put(url, headers=req_headers, json=payload, timeout=30)
+            if r.status_code in (200, 201):
+                return True, None
+            if r.status_code == 409:          # SHA conflict — retry
+                time.sleep(1)
+                r2 = requests.get(url, headers=req_headers, timeout=15)
+                payload["sha"] = r2.json().get("sha", "")
+                continue
+            if r.status_code == 403:
+                return False, (
+                    "**403 Permission Denied** — your GitHub token is read-only.\n\n"
+                    "Fix: GitHub → Settings → Developer settings → "
+                    "Personal access tokens → create token with **`repo`** scope, "
+                    "then update **GITHUB_TOKEN** in Streamlit → Manage app → Secrets."
+                )
+            return False, f"GitHub push failed ({r.status_code}): {r.text[:200]}"
+        except Exception as exc:
+            return False, f"Error: {exc}"
+    return False, "Could not save after 3 attempts. Try again."
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -583,8 +677,11 @@ def main() -> None:
         except Exception as exc:
             load_error = str(exc)
     else:
-        # Cloud deployment — use bytes stored in session_state
-        if "excel_bytes" in st.session_state:
+        # Cloud deployment — try GitHub first, then fall back to session upload
+        portfolio, gh_err = load_portfolio_github()
+        if gh_err and gh_err != "not_found":
+            load_error = gh_err
+        if not portfolio and "excel_bytes" in st.session_state:
             try:
                 portfolio = load_portfolio_bytes(st.session_state["excel_bytes"])
             except Exception as exc:
@@ -607,20 +704,32 @@ def main() -> None:
                 load_portfolio.clear()
                 st.rerun()
         else:
-            # Cloud: show file uploader
-            st.markdown(
-                f"<span style='color:{theme['subhead']};font-weight:600'>"
-                f"📁 Upload your Excel file:</span>",
-                unsafe_allow_html=True,
-            )
-            uploaded = st.file_uploader(
-                "Gaboch_portfolio.xlsx", type=["xlsx", "xlsm"],
-                label_visibility="collapsed",
-            )
-            if uploaded is not None:
-                st.session_state["excel_bytes"] = uploaded.read()
-                load_portfolio_bytes.clear()
-                st.rerun()
+            # Cloud: auto-loaded from GitHub — only show uploader if file not found
+            _, gh_err2 = load_portfolio_github()
+            if gh_err2 == "not_found":
+                st.markdown(
+                    f"<span style='color:{theme['subhead']};font-weight:600'>"
+                    f"📁 Upload once — saves to GitHub automatically:</span>",
+                    unsafe_allow_html=True,
+                )
+                uploaded = st.file_uploader(
+                    "Gaboch_portfolio.xlsx", type=["xlsx", "xlsm"],
+                    label_visibility="collapsed",
+                )
+                if uploaded is not None:
+                    raw = uploaded.read()
+                    st.session_state["excel_bytes"] = raw
+                    load_portfolio_bytes.clear()
+                    with st.spinner("Saving to GitHub for auto-load next time…"):
+                        ok, push_err = push_excel_to_github(raw)
+                    if ok:
+                        load_portfolio_github.clear()
+                        st.success("✓ Saved! Future visits load automatically.")
+                    else:
+                        st.error(push_err)
+                    st.rerun()
+            else:
+                st.caption(f"✅ Auto-loaded from GitHub")
 
         col1, col2 = st.columns(2)
         with col1:
