@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import hashlib
 import io
 import math
 import re
@@ -392,6 +393,25 @@ def push_excel_to_github(data: bytes) -> tuple[bool, str | None]:
     return False, "Could not save after 3 attempts. Try again."
 
 
+def _auto_push_if_changed(filepath: str) -> None:
+    """Silently push local Excel to GitHub when the file content has changed.
+
+    Uses an MD5 hash stored in session_state so the push only happens once
+    per unique file version — not on every Streamlit rerun.
+    """
+    try:
+        with open(filepath, "rb") as f:
+            raw = f.read()
+        current_hash = hashlib.md5(raw).hexdigest()
+    except Exception:
+        return
+    if st.session_state.get("_excel_hash") == current_hash:
+        return   # file unchanged since last push — skip
+    ok, _ = push_excel_to_github(raw)
+    if ok:
+        st.session_state["_excel_hash"] = current_hash
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Theme / CSS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -676,6 +696,8 @@ def main() -> None:
             portfolio = load_portfolio(excel_path)
         except Exception as exc:
             load_error = str(exc)
+        if not load_error:
+            _auto_push_if_changed(excel_path)   # silent sync to GitHub
     else:
         # Cloud deployment — try GitHub first, then fall back to session upload
         portfolio, gh_err = load_portfolio_github()
@@ -731,31 +753,16 @@ def main() -> None:
             else:
                 st.caption(f"✅ Auto-loaded from GitHub")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Refresh", use_container_width=True):
-                load_portfolio.clear()
-                load_portfolio_bytes.clear()
-                load_portfolio_github.clear()
-                fetch_yf_info.clear()
-                st.rerun()
+        if st.button("🔄 Refresh", use_container_width=True):
+            load_portfolio.clear()
+            load_portfolio_bytes.clear()
+            load_portfolio_github.clear()
+            fetch_yf_info.clear()
+            st.session_state.pop("_excel_hash", None)   # force re-push on next load
+            st.rerun()
         if local_exists:
-            with col2:
-                if st.button("📤 Push to GitHub", use_container_width=True,
-                             help="Upload your local Excel to GitHub so your phone sees the latest data"):
-                    with st.spinner("Pushing to GitHub…"):
-                        try:
-                            import os as _os2
-                            with open(excel_path, "rb") as fh:
-                                raw = fh.read()
-                            ok, push_err = push_excel_to_github(raw)
-                        except Exception as exc:
-                            ok, push_err = False, str(exc)
-                    if ok:
-                        load_portfolio_github.clear()
-                        st.success("✓ Pushed! Your phone will see the update.")
-                    else:
-                        st.error(push_err)
+            if st.session_state.get("_excel_hash"):
+                st.caption("✅ Synced to GitHub")
 
         if load_error:
             st.error(f"⚠️ Load error:\n{load_error}")
