@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import contextlib
 import io
+import math
 import re
+import time
 from datetime import datetime
 
 import openpyxl
@@ -59,6 +61,14 @@ THEME_PRESETS: dict[str, dict] = {
 }
 
 DEFAULTS = THEME_PRESETS["Dark Navy"]
+
+# Maps theme color keys → their color-picker widget keys (mirrors stock_viewer pattern)
+_CP_KEYS = {
+    "profit": "cp_profit", "loss": "cp_loss",
+    "header": "cp_header", "subhead": "cp_sub",
+    "accent": "cp_accent", "text": "cp_text",
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data helpers
@@ -135,6 +145,15 @@ _TICKER_RE = re.compile(
 )
 
 
+def _safe_v(v) -> float | None:
+    """Safely convert to float; return None on NaN or error."""
+    try:
+        f = float(v)
+        return None if math.isnan(f) else round(f, 4)
+    except Exception:
+        return None
+
+
 def extract_yf_ticker(ticker_full: str) -> str:
     """Extract a yfinance-compatible symbol from 'NAME (EXCHANGE:TICKER)'."""
     s = str(ticker_full).strip()
@@ -154,24 +173,57 @@ def extract_yf_ticker(ticker_full: str) -> str:
     return symbol
 
 
+def _build_desc(info: dict) -> str:
+    """Build a company/ETF description from yfinance info (from stock_viewer_web)."""
+    d = info.get("longBusinessSummary")
+    if d:
+        return d
+    qt, parts = info.get("quoteType", ""), []
+    if qt in ("ETF", "MUTUALFUND"):
+        parts.append(f"{info.get('longName', '')} is an {qt}.")
+        if info.get("category"):
+            parts.append(f"Category: {info['category']}.")
+        if info.get("fundFamily"):
+            parts.append(f"Fund family: {info['fundFamily']}.")
+    return " ".join(parts) if parts else ""
+
+
 @st.cache_data(ttl=60)
-def fetch_yf_info(yf_ticker: str) -> dict:
-    """Return company name, live price, and currency from Yahoo Finance (cached 60s)."""
+def fetch_yf_info(yf_ticker: str, retries: int = 3, base_delay: float = 5.0) -> dict:
+    """Return company name, description, live price, and currency from Yahoo Finance.
+
+    Includes retry logic with exponential back-off on rate-limit errors
+    (pattern from stock_viewer_web.py).
+    """
     if not yf_ticker:
         return {}
-    try:
-        with contextlib.redirect_stderr(io.StringIO()), \
-             contextlib.redirect_stdout(io.StringIO()):
-            info = yf.Ticker(yf_ticker).info
-        return {
-            "company_name":  info.get("longName") or info.get("shortName") or "",
-            "current_price": (info.get("currentPrice")
-                              or info.get("regularMarketPrice")
-                              or info.get("previousClose")),
-            "is_canadian":   info.get("currency", "USD").upper() == "CAD",
-        }
-    except Exception:
-        return {"company_name": "", "current_price": None, "is_canadian": False}
+    for attempt in range(retries):
+        try:
+            with contextlib.redirect_stderr(io.StringIO()), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                t    = yf.Ticker(yf_ticker)
+                info = t.info
+            if not info:
+                return {}
+            price = _safe_v(
+                info.get("currentPrice")
+                or info.get("regularMarketPrice")
+                or info.get("previousClose")
+            )
+            return {
+                "company_name":  info.get("longName") or info.get("shortName") or "",
+                "company_desc":  _build_desc(info),
+                "current_price": price,
+                "is_canadian":   info.get("currency", "USD").upper() == "CAD",
+            }
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if any(k in err_str for k in ("too many requests", "rate limit", "429")):
+                time.sleep(base_delay * (2 ** attempt))   # exponential back-off
+            else:
+                return {"company_name": "", "company_desc": "",
+                        "current_price": None, "is_canadian": False}
+    return {"company_name": "", "company_desc": "", "current_price": None, "is_canadian": False}
 
 
 def _parse_rows(rows: list) -> dict:
@@ -251,12 +303,29 @@ def load_portfolio_bytes(data: bytes) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _init_theme() -> None:
+    """Seed session state on first run (mirrors stock_viewer_web pattern)."""
     if "theme" not in st.session_state:
         st.session_state.theme = dict(DEFAULTS)
+    t = st.session_state.theme
+    # Seed color-picker widget keys from current theme so they stay in sync
+    for tk, ck in _CP_KEYS.items():
+        if ck not in st.session_state:
+            st.session_state[ck] = t[tk]
+    if "sl_font" not in st.session_state:
+        st.session_state["sl_font"] = t["font_size"]
 
 
 def _get_theme() -> dict:
     return st.session_state.theme
+
+
+def _apply_preset(preset: dict) -> None:
+    """Apply a preset and update both theme dict and color-picker widget keys."""
+    st.session_state.theme = dict(preset)
+    t = st.session_state.theme
+    for tk, ck in _CP_KEYS.items():
+        st.session_state[ck] = t[tk]
+    st.session_state["sl_font"] = t["font_size"]
 
 
 def _inject_css(t: dict) -> None:
@@ -288,7 +357,14 @@ def _inject_css(t: dict) -> None:
         color: {t['subhead']};
         font-size: {fs + 2}px;
         font-weight: 600;
+        margin-bottom: 4px;
+    }}
+    .rpt-desc {{
+        color: {t['text']};
+        font-size: {fs - 1}px;
+        opacity: 0.75;
         margin-bottom: 10px;
+        line-height: 1.5;
     }}
     .rpt-divider {{
         border: none;
@@ -387,7 +463,13 @@ def _inject_css(t: dict) -> None:
 # Report HTML builder
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_report_html(portfolio: dict, ticker: str, live_price, yf_company: str) -> str:
+def _build_report_html(
+    portfolio: dict,
+    ticker: str,
+    live_price,
+    yf_company: str,
+    company_desc: str = "",
+) -> str:
     data         = portfolio[ticker]
     transactions = data["transactions"]
     is_cad       = data["is_canadian"]
@@ -425,6 +507,10 @@ def _build_report_html(portfolio: dict, ticker: str, live_price, yf_company: str
     html.append(f'<div class="rpt-ticker">{ticker}</div>')
     if company:
         html.append(f'<div class="rpt-company">{company}</div>')
+    # Company / ETF description (from stock_viewer_web pattern)
+    if company_desc:
+        preview = company_desc[:200] + "…" if len(company_desc) > 200 else company_desc
+        html.append(f'<div class="rpt-desc">{preview}</div>')
     html.append('<hr class="rpt-divider">')
 
     # Total box at top
@@ -448,7 +534,7 @@ def _build_report_html(portfolio: dict, ticker: str, live_price, yf_company: str
         html.append(f'<div class="rpt-txn-hdr">Transaction #{idx}{acct_str}</div>')
 
         cur_display = cur_used if cur_used is not None else txn["current_price"]
-        html.append(field_row("Current Price:",    fmt_currency(cur_display,          is_cad)))
+        html.append(field_row("Current Price:",    fmt_currency(cur_display,           is_cad)))
         html.append(field_row("Purchase Price:",   fmt_currency(txn["purchase_price"], is_cad)))
         html.append(field_row("Amount of Shares:", fmt_shares(txn["shares"])))
 
@@ -522,8 +608,11 @@ def main() -> None:
                 st.rerun()
         else:
             # Cloud: show file uploader
-            st.markdown(f"<span style='color:{theme['subhead']};font-weight:600'>"
-                        f"📁 Upload your Excel file:</span>", unsafe_allow_html=True)
+            st.markdown(
+                f"<span style='color:{theme['subhead']};font-weight:600'>"
+                f"📁 Upload your Excel file:</span>",
+                unsafe_allow_html=True,
+            )
             uploaded = st.file_uploader(
                 "Gaboch_portfolio.xlsx", type=["xlsx", "xlsm"],
                 label_visibility="collapsed",
@@ -563,42 +652,59 @@ def main() -> None:
         # ── Customize Layout ──────────────────────────────────────────────────
         with st.expander("⚙️  Customize Layout", expanded=False):
             preset_name = st.selectbox(
-                "Theme Preset:", list(THEME_PRESETS.keys()), label_visibility="visible",
+                "Theme Preset:", list(THEME_PRESETS.keys()),
+                label_visibility="visible",
             )
-            if st.button("✔  Apply Preset", use_container_width=True):
-                st.session_state.theme = dict(THEME_PRESETS[preset_name])
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("✔ Apply Preset", use_container_width=True, key="btn_preset"):
+                    _apply_preset(THEME_PRESETS[preset_name])
+                    st.rerun()
+            with col_b:
+                if st.button("↺ Defaults", use_container_width=True, key="btn_reset"):
+                    _apply_preset(DEFAULTS)
+                    st.rerun()
+
+            st.markdown("**Colors** *(pick to apply instantly)*")
+
+            # Color pickers — auto-apply on change (stock_viewer_web pattern)
+            new_profit = st.color_picker("Profit",     theme["profit"],  key="cp_profit")
+            if new_profit != theme["profit"]:
+                st.session_state.theme["profit"] = new_profit
                 st.rerun()
 
-            st.markdown("**Custom Colors:**")
-            c1, c2 = st.columns(2)
-            with c1:
-                profit_c = st.color_picker("Profit",     theme["profit"],  key="cp_profit")
-                header_c = st.color_picker("Header",     theme["header"],  key="cp_header")
-                accent_c = st.color_picker("Accent",     theme["accent"],  key="cp_accent")
-            with c2:
-                loss_c   = st.color_picker("Loss",       theme["loss"],    key="cp_loss")
-                subhd_c  = st.color_picker("Sub-header", theme["subhead"], key="cp_sub")
-                text_c   = st.color_picker("Text",       theme["text"],    key="cp_text")
+            new_loss = st.color_picker("Loss",         theme["loss"],    key="cp_loss")
+            if new_loss != theme["loss"]:
+                st.session_state.theme["loss"] = new_loss
+                st.rerun()
 
-            font_size = st.slider(
+            new_header = st.color_picker("Header",     theme["header"],  key="cp_header")
+            if new_header != theme["header"]:
+                st.session_state.theme["header"] = new_header
+                st.rerun()
+
+            new_sub = st.color_picker("Sub-header",   theme["subhead"], key="cp_sub")
+            if new_sub != theme["subhead"]:
+                st.session_state.theme["subhead"] = new_sub
+                st.rerun()
+
+            new_accent = st.color_picker("Accent",     theme["accent"],  key="cp_accent")
+            if new_accent != theme["accent"]:
+                st.session_state.theme["accent"] = new_accent
+                st.rerun()
+
+            new_text = st.color_picker("Text",         theme["text"],    key="cp_text")
+            if new_text != theme["text"]:
+                st.session_state.theme["text"] = new_text
+                st.rerun()
+
+            new_sz = st.slider(
                 "Font Size (px)", min_value=12, max_value=22,
-                value=theme["font_size"], step=1,
+                value=theme["font_size"], step=1, key="sl_font",
             )
-
-            bc1, bc2 = st.columns(2)
-            with bc1:
-                if st.button("✔  Apply Colors", use_container_width=True):
-                    st.session_state.theme.update({
-                        "profit": profit_c, "loss": loss_c,
-                        "header": header_c, "subhead": subhd_c,
-                        "accent": accent_c, "text": text_c,
-                        "font_size": font_size,
-                    })
-                    st.rerun()
-            with bc2:
-                if st.button("↺  Defaults", use_container_width=True):
-                    st.session_state.theme = dict(DEFAULTS)
-                    st.rerun()
+            if new_sz != theme["font_size"]:
+                st.session_state.theme["font_size"] = new_sz
+                st.rerun()
 
     # ── Main content ──────────────────────────────────────────────────────────
     if load_error:
@@ -609,7 +715,8 @@ def main() -> None:
 
     if not selected_ticker or not portfolio:
         st.markdown(
-            f"<div style='color:{theme['subhead']};font-size:18px;margin-top:40px;text-align:center'>"
+            f"<div style='color:{theme['subhead']};font-size:18px;margin-top:40px;"
+            f"text-align:center'>"
             f"📈 Select a ticker from the sidebar to view transactions."
             f"</div>",
             unsafe_allow_html=True,
@@ -627,10 +734,11 @@ def main() -> None:
         else:
             yf_ticker = base
 
-    yf_data    = fetch_yf_info(yf_ticker)
-    yf_company = yf_data.get("company_name", "")
-    live_price = yf_data.get("current_price")
-    is_cad     = data["is_canadian"] or yf_data.get("is_canadian", False)
+    yf_data      = fetch_yf_info(yf_ticker)
+    yf_company   = yf_data.get("company_name", "")
+    company_desc = yf_data.get("company_desc", "")
+    live_price   = yf_data.get("current_price")
+    is_cad       = data["is_canadian"] or yf_data.get("is_canadian", False)
 
     txns = data["transactions"]
     sym  = "CAD$" if is_cad else "USD$"
@@ -652,8 +760,6 @@ def main() -> None:
         except (TypeError, ValueError):
             pass
 
-    total_str = fmt_currency(total_pnl, is_cad, show_sign=True)
-
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Ticker",       selected_ticker)
     col2.metric("Company",      company[:28] + "…" if len(company) > 28 else company)
@@ -663,7 +769,9 @@ def main() -> None:
     st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
 
     # ── Transaction report ────────────────────────────────────────────────────
-    html = _build_report_html(portfolio, selected_ticker, live_price, yf_company)
+    html = _build_report_html(
+        portfolio, selected_ticker, live_price, yf_company, company_desc
+    )
     st.markdown(html, unsafe_allow_html=True)
 
 
