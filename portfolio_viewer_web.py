@@ -12,7 +12,9 @@ import base64
 import contextlib
 import hashlib
 import io
+import json
 import math
+import os
 import re
 import time
 from datetime import datetime
@@ -25,8 +27,10 @@ import yfinance as yf
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
-SHEET_NAME    = "Gaboch_portfolio"
-DEFAULT_EXCEL = r"C:\Gaboch_Portfolio\Gaboch_portfolio.xlsx"
+SHEET_NAME       = "Gaboch_portfolio"
+DEFAULT_EXCEL    = r"C:\Gaboch_Portfolio\Gaboch_portfolio.xlsx"
+_WEB_PREFS_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web_prefs.json")
+_GH_PREFS_FILE   = "web_prefs.json"
 
 CANADIAN_EXCHANGES = {"XTSE", "XTSX", "XCNQ", "TSX", "TSXV"}
 
@@ -413,13 +417,78 @@ def _auto_push_if_changed(filepath: str) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Theme persistence
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _load_theme_prefs() -> dict:
+    """Load saved theme: local file first (laptop), then GitHub (cloud)."""
+    # Laptop: local JSON file
+    try:
+        with open(_WEB_PREFS_FILE) as f:
+            return json.load(f)
+    except Exception:
+        pass
+    # Cloud: GitHub
+    try:
+        token, owner, repo = _gh_secrets()
+        url = (f"https://api.github.com/repos/{owner}/{repo}"
+               f"/contents/{_GH_PREFS_FILE}")
+        r = requests.get(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.raw+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }, timeout=10)
+        if r.status_code == 200:
+            return json.loads(r.content)
+    except Exception:
+        pass
+    return {}
+
+
+def _save_theme_prefs(theme: dict, local_mode: bool) -> None:
+    """Save theme to local file (laptop) or GitHub (cloud)."""
+    if local_mode:
+        try:
+            with open(_WEB_PREFS_FILE, "w") as f:
+                json.dump(theme, f, indent=2)
+        except Exception:
+            pass
+    else:
+        try:
+            token, owner, repo = _gh_secrets()
+            url = (f"https://api.github.com/repos/{owner}/{repo}"
+                   f"/contents/{_GH_PREFS_FILE}")
+            hdrs = {"Authorization": f"Bearer {token}",
+                    "X-GitHub-Api-Version": "2022-11-28"}
+            content = base64.b64encode(json.dumps(theme, indent=2).encode()).decode()
+            r = requests.get(url, headers=hdrs, timeout=10)
+            sha = r.json().get("sha", "") if r.status_code == 200 else ""
+            payload: dict = {"message": "update web_prefs", "content": content}
+            if sha:
+                payload["sha"] = sha
+            requests.put(url, headers=hdrs, json=payload, timeout=15)
+        except Exception:
+            pass
+
+
+def _persist_theme_if_changed(theme: dict, local_mode: bool) -> None:
+    """Save theme only when it has changed since last save (avoids redundant I/O)."""
+    h = hashlib.md5(json.dumps(theme, sort_keys=True).encode()).hexdigest()
+    if st.session_state.get("_theme_save_hash") == h:
+        return
+    _save_theme_prefs(theme, local_mode)
+    st.session_state["_theme_save_hash"] = h
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Theme / CSS
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _init_theme() -> None:
-    """Seed session state on first run (mirrors stock_viewer_web pattern)."""
+    """Seed session state on first run — restores saved theme if available."""
     if "theme" not in st.session_state:
-        st.session_state.theme = dict(DEFAULTS)
+        saved = _load_theme_prefs()
+        st.session_state.theme = {**DEFAULTS, **saved}
     t = st.session_state.theme
     # Seed color-picker widget keys from current theme so they stay in sync
     for tk, ck in _CP_KEYS.items():
@@ -679,14 +748,14 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
 
+    # ── Determine local vs cloud FIRST (needed for theme persistence) ────────
+    excel_path   = st.session_state.get("excel_path", DEFAULT_EXCEL)
+    local_exists = os.path.exists(excel_path)
+
     _init_theme()
     theme = _get_theme()
+    _persist_theme_if_changed(theme, local_exists)   # auto-save on every change
     _inject_css(theme)
-
-    # ── Determine data source: local file (laptop) or upload (cloud) ─────────
-    import os as _os
-    excel_path   = st.session_state.get("excel_path", DEFAULT_EXCEL)
-    local_exists = _os.path.exists(excel_path)
     load_error   = None
     portfolio: dict = {}
 
