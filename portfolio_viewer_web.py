@@ -651,6 +651,34 @@ def _inject_css(t: dict) -> None:
         color: {t['header']} !important;
         font-weight: 700;
     }}
+    /* Base Web select / dropdown — override Streamlit's built-in dark backgrounds */
+    [data-baseweb="select"] > div,
+    [data-baseweb="select"] > div:hover {{
+        background-color: {t['card_bg']} !important;
+        color: {t['text']} !important;
+        border-color: {t['border']} !important;
+    }}
+    [data-baseweb="select"] span,
+    [data-baseweb="select"] input {{
+        color: {t['text']} !important;
+    }}
+    [data-baseweb="popover"] [data-baseweb="menu"],
+    [data-baseweb="menu"] {{
+        background-color: {t['card_bg']} !important;
+    }}
+    [data-baseweb="option"] {{
+        background-color: {t['card_bg']} !important;
+        color: {t['text']} !important;
+    }}
+    [data-baseweb="option"]:hover,
+    [data-baseweb="option"][aria-selected="true"] {{
+        background-color: {t['accent']} !important;
+        color: #ffffff !important;
+    }}
+    /* Row divider — use theme border color instead of hardcoded white */
+    .rpt-row {{
+        border-bottom: 1px solid {t['border']} !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
