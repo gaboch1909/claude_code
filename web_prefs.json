@@ -1,12 +1,12 @@
 {
-  "bg": "#1a0533",
-  "card_bg": "#220a40",
-  "accent": "#7b1fa2",
-  "text": "#ede0f5",
-  "profit": "#ba68c8",
-  "loss": "#ef5350",
-  "header": "#ce93d8",
-  "subhead": "#e1bee7",
-  "border": "#4a148c",
+  "bg": "#f4f6f9",
+  "card_bg": "#ffffff",
+  "accent": "#1565c0",
+  "text": "#1a1a2e",
+  "profit": "#2e7d32",
+  "loss": "#c62828",
+  "header": "#1565c0",
+  "subhead": "#1976d2",
+  "border": "#cbd5e1",
   "font_size": 15
 }
