@@ -623,8 +623,7 @@ def _build_report_html(
         html.append(f'<div class="rpt-company">{company}</div>')
     # Company / ETF description (from stock_viewer_web pattern)
     if company_desc:
-        preview = company_desc[:200] + "…" if len(company_desc) > 200 else company_desc
-        html.append(f'<div class="rpt-desc">{preview}</div>')
+        html.append(f'<div class="rpt-desc">{company_desc}</div>')
     html.append('<hr class="rpt-divider">')
 
     # Total box at top
