@@ -60,10 +60,10 @@ THEME_PRESETS: dict[str, dict] = {
         "border": "#4a148c", "font_size": 15,
     },
     "Light Mode": {
-        "bg": "#f4f6f9", "card_bg": "#ffffff", "accent": "#1565c0",
-        "text": "#1a1a2e", "profit": "#2e7d32", "loss": "#c62828",
-        "header": "#1565c0", "subhead": "#1976d2",
-        "border": "#cbd5e1", "font_size": 15,
+        "bg": "#f4f6f9", "card_bg": "#e8edf5", "accent": "#1565c0",
+        "text": "#0d1117", "profit": "#2e7d32", "loss": "#c62828",
+        "header": "#1565c0", "subhead": "#1565c0",
+        "border": "#b0bec5", "font_size": 15,
     },
 }
 
@@ -515,8 +515,21 @@ def _inject_css(t: dict) -> None:
     fs = t["font_size"]
     st.markdown(f"""
     <style>
-    /* App background */
-    .stApp {{ background-color: {t['bg']} !important; }}
+    /* App background + global text (critical for Light Mode) */
+    .stApp {{ background-color: {t['bg']} !important; color: {t['text']} !important; }}
+    [data-testid="stMain"] {{ color: {t['text']} !important; }}
+    [data-testid="stAppViewContainer"] {{ color: {t['text']} !important; }}
+    .main .block-container {{ color: {t['text']} !important; }}
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] span {{ color: {t['text']} !important; }}
+    /* Selectbox / widget labels */
+    [data-testid="stSelectbox"] label,
+    [data-testid="stTextInput"] label,
+    [data-testid="stSelectbox"] div[data-baseweb="select"] span,
+    [data-testid="stSelectbox"] div[data-baseweb="select"] div {{
+        color: {t['text']} !important;
+    }}
     /* Sidebar */
     section[data-testid="stSidebar"] {{
         background-color: {t['card_bg']} !important;
