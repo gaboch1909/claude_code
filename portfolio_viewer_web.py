@@ -504,11 +504,13 @@ def _get_theme() -> dict:
 
 def _apply_preset(preset: dict) -> None:
     """Apply a preset and update both theme dict and color-picker widget keys."""
+    current_font = st.session_state.get("sl_font") or st.session_state.theme.get("font_size", 15)
     st.session_state.theme = dict(preset)
+    st.session_state.theme["font_size"] = current_font
     t = st.session_state.theme
     for tk, ck in _CP_KEYS.items():
         st.session_state[ck] = t[tk]
-    st.session_state["sl_font"] = t["font_size"]
+    st.session_state["sl_font"] = current_font
 
 
 def _inject_css(t: dict) -> None:
