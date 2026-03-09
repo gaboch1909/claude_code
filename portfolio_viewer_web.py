@@ -517,19 +517,8 @@ def _inject_css(t: dict) -> None:
     fs = t["font_size"]
     st.markdown(f"""
     <style>
-    /* App background + global text (critical for Light Mode) */
-    .stApp {{ background-color: {t['bg']} !important; color: {t['text']} !important; }}
-    [data-testid="stMain"] {{ color: {t['text']} !important; }}
-    [data-testid="stAppViewContainer"] {{ color: {t['text']} !important; }}
-    .main .block-container {{ color: {t['text']} !important; }}
-    [data-testid="stMarkdownContainer"] {{ color: {t['text']} !important; }}
-    /* Selectbox / widget labels */
-    [data-testid="stSelectbox"] label,
-    [data-testid="stTextInput"] label,
-    [data-testid="stSelectbox"] div[data-baseweb="select"] span,
-    [data-testid="stSelectbox"] div[data-baseweb="select"] div {{
-        color: {t['text']} !important;
-    }}
+    /* App background only — do NOT set global color here (breaks profit/loss) */
+    .stApp {{ background-color: {t['bg']} !important; }}
     /* Sidebar */
     section[data-testid="stSidebar"] {{
         background-color: {t['card_bg']} !important;
@@ -587,13 +576,13 @@ def _inject_css(t: dict) -> None:
         font-size: {fs + 1}px;
         font-weight: 700;
     }}
-    #gaboch-rpt .rpt-total-profit {{
-        color: {t['profit']} !important;
+    .rpt-total-profit {{
+        color: {t['profit']};
         font-size: {fs + 5}px;
         font-weight: 800;
     }}
-    #gaboch-rpt .rpt-total-loss {{
-        color: {t['loss']} !important;
+    .rpt-total-loss {{
+        color: {t['loss']};
         font-size: {fs + 5}px;
         font-weight: 800;
     }}
@@ -622,13 +611,13 @@ def _inject_css(t: dict) -> None:
         font-weight: 600;
         font-size: {fs}px;
     }}
-    #gaboch-rpt .rpt-profit {{
-        color: {t['profit']} !important;
+    .rpt-profit {{
+        color: {t['profit']};
         font-weight: 700;
         font-size: {fs}px;
     }}
-    #gaboch-rpt .rpt-loss {{
-        color: {t['loss']} !important;
+    .rpt-loss {{
+        color: {t['loss']};
         font-weight: 700;
         font-size: {fs}px;
     }}
@@ -767,7 +756,8 @@ def _build_report_html(
         pct_str   = fmt_pct(p_pct)
         html.append(field_row(
             "Profit / Loss:",
-            f'<span class="{pnl_class}">{pnl_str} &nbsp;<span style="opacity:0.75">({pct_str})</span></span>',
+            f"{pnl_str} &nbsp;<span style='opacity:0.75'>({pct_str})</span>",
+            pnl_class,
         ))
 
         html.append(field_row("Purchase Date:", fmt_date(txn["purchase_date"])))
