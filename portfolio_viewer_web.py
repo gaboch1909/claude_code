@@ -587,12 +587,12 @@ def _inject_css(t: dict) -> None:
         font-size: {fs + 1}px;
         font-weight: 700;
     }}
-    [data-testid="stMarkdownContainer"] .rpt-total-profit {{
+    #gaboch-rpt .rpt-total-profit {{
         color: {t['profit']} !important;
         font-size: {fs + 5}px;
         font-weight: 800;
     }}
-    [data-testid="stMarkdownContainer"] .rpt-total-loss {{
+    #gaboch-rpt .rpt-total-loss {{
         color: {t['loss']} !important;
         font-size: {fs + 5}px;
         font-weight: 800;
@@ -622,12 +622,12 @@ def _inject_css(t: dict) -> None:
         font-weight: 600;
         font-size: {fs}px;
     }}
-    [data-testid="stMarkdownContainer"] .rpt-profit {{
+    #gaboch-rpt .rpt-profit {{
         color: {t['profit']} !important;
         font-weight: 700;
         font-size: {fs}px;
     }}
-    [data-testid="stMarkdownContainer"] .rpt-loss {{
+    #gaboch-rpt .rpt-loss {{
         color: {t['loss']} !important;
         font-weight: 700;
         font-size: {fs}px;
@@ -728,7 +728,7 @@ def _build_report_html(
             pf, pp, cur = None, None, None
         pnl_per_txn.append((pf, pp, cur))
 
-    html = ['<div class="rpt-container">']
+    html = ['<div id="gaboch-rpt" class="rpt-container">']
     html.append(f'<div class="rpt-ticker">{ticker}</div>')
     if company:
         html.append(f'<div class="rpt-company">{company}</div>')
