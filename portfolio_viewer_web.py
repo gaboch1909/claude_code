@@ -813,6 +813,7 @@ def main() -> None:
     theme = _get_theme()
     _persist_theme_if_changed(theme, local_exists)   # auto-save on every change
     _inject_css(theme)
+    st.warning(f"⚡ v1.2 | March 9, 2026 | {datetime.now().strftime('%H:%M:%S')}")
     load_error   = None
     portfolio: dict = {}
 
@@ -1026,9 +1027,6 @@ def main() -> None:
     col4.metric("Currency",     sym)
 
     st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
-
-    # ── Version stamp (temporary debug) ──────────────────────────────────────
-    st.caption(f"v1.2 | March 9, 2026 | {datetime.now().strftime('%H:%M:%S')}")
 
     # ── Transaction report ────────────────────────────────────────────────────
     html = _build_report_html(
