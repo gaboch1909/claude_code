@@ -1027,6 +1027,9 @@ def main() -> None:
 
     st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
 
+    # ── Version stamp (temporary debug) ──────────────────────────────────────
+    st.caption(f"v1.2 | March 9, 2026 | {datetime.now().strftime('%H:%M:%S')}")
+
     # ── Transaction report ────────────────────────────────────────────────────
     html = _build_report_html(
         portfolio, selected_ticker, live_price, yf_company, company_desc,
