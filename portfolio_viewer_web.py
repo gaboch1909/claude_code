@@ -684,8 +684,17 @@ def _build_report_html(
     company_desc: str = "",
     theme: dict | None = None,
 ) -> str:
-    t  = theme or {}
-    fs = t.get("font_size", 15)
+    t            = theme or {}
+    fs           = t.get("font_size", 15)
+    c_text       = t.get("text",    "#e8edf2")
+    c_header     = t.get("header",  "#64b5f6")
+    c_subhead    = t.get("subhead", "#90caf9")
+    c_accent     = t.get("accent",  "#1565c0")
+    c_card       = t.get("card_bg", "#1b2a3b")
+    c_border     = t.get("border",  "#1e3a5f")
+    c_profit     = t.get("profit",  "#4caf50")
+    c_loss       = t.get("loss",    "#ef5350")
+
     data         = portfolio[ticker]
     transactions = data["transactions"]
     is_cad       = data["is_canadian"]
@@ -696,11 +705,23 @@ def _build_report_html(
         excel_company = ""
     company = yf_company or excel_company or ticker
 
-    def field_row(label: str, value: str, css_class: str = "rpt-val") -> str:
+    # All styles inline — like desktop's foreground= on each tag
+    S_TEXT    = f"color:{c_text}"
+    S_HEADER  = f"color:{c_header};font-size:{fs+14}px;font-weight:700;letter-spacing:2px;margin-bottom:2px"
+    S_SUBHEAD = f"color:{c_subhead};font-size:{fs+2}px;font-weight:600;margin-bottom:4px"
+    S_DESC    = f"color:{c_text};font-size:{fs-1}px;opacity:0.75;margin-bottom:10px;line-height:1.5"
+    S_TXNHDR  = f"color:{c_subhead};font-size:{fs+1}px;font-weight:700;margin:18px 0 8px 0;padding-bottom:4px;border-bottom:1px solid {c_border}"
+    S_LBL     = f"color:{c_text};width:220px;opacity:0.8;font-size:{fs}px"
+    S_VAL     = f"color:{c_text};font-weight:600;font-size:{fs}px"
+    S_ROW     = f"display:flex;padding:5px 0;border-bottom:1px solid {c_border};align-items:center"
+    S_PROFIT  = f"color:{c_profit};font-weight:700;font-size:{fs}px"
+    S_LOSS    = f"color:{c_loss};font-weight:700;font-size:{fs}px"
+
+    def field_row(label: str, value: str, val_style: str = S_VAL) -> str:
         return (
-            f'<div class="rpt-row">'
-            f'<span class="rpt-lbl">{label}</span>'
-            f'<span class="{css_class}">{value}</span>'
+            f'<div style="{S_ROW}">'
+            f'<span style="{S_LBL}">{label}</span>'
+            f'<span style="{val_style}">{value}</span>'
             f'</div>'
         )
 
@@ -719,39 +740,22 @@ def _build_report_html(
             pf, pp, cur = None, None, None
         pnl_per_txn.append((pf, pp, cur))
 
-    html = [f"""<style>
-    .rpt-container{{font-family:'Segoe UI',Arial,sans-serif;font-size:{fs}px;color:{t.get('text','#e8edf2')};max-width:860px}}
-    .rpt-ticker{{color:{t.get('header','#64b5f6')};font-size:{fs+14}px;font-weight:700;letter-spacing:2px;margin-bottom:2px}}
-    .rpt-company{{color:{t.get('subhead','#90caf9')};font-size:{fs+2}px;font-weight:600;margin-bottom:4px}}
-    .rpt-desc{{color:{t.get('text','#e8edf2')};font-size:{fs-1}px;opacity:0.75;margin-bottom:10px;line-height:1.5}}
-    .rpt-divider{{border:none;border-top:2px solid {t.get('accent','#1565c0')};margin:10px 0 18px 0}}
-    .rpt-total-box{{margin:0 0 22px 0;padding:18px 24px;border:2px solid {t.get('accent','#1565c0')};border-radius:10px;background:{t.get('card_bg','#1b2a3b')};display:flex;align-items:center;gap:16px}}
-    .rpt-total-lbl{{color:{t.get('text','#e8edf2')};font-size:{fs+1}px;font-weight:700}}
-    .rpt-total-profit{{color:{t.get('profit','#4caf50')};font-size:{fs+5}px;font-weight:800}}
-    .rpt-total-loss{{color:{t.get('loss','#ef5350')};font-size:{fs+5}px;font-weight:800}}
-    .rpt-txn-hdr{{color:{t.get('subhead','#90caf9')};font-size:{fs+1}px;font-weight:700;margin:18px 0 8px 0;padding-bottom:4px;border-bottom:1px solid {t.get('border','#1e3a5f')}}}
-    .rpt-row{{display:flex;padding:5px 0;border-bottom:1px solid {t.get('border','#1e3a5f')};align-items:center}}
-    .rpt-lbl{{color:{t.get('text','#e8edf2')};width:220px;opacity:0.8;font-size:{fs}px}}
-    .rpt-val{{color:{t.get('text','#e8edf2')};font-weight:600;font-size:{fs}px}}
-    .rpt-profit{{color:{t.get('profit','#4caf50')};font-weight:700;font-size:{fs}px}}
-    .rpt-loss{{color:{t.get('loss','#ef5350')};font-weight:700;font-size:{fs}px}}
-    </style>"""]
-    html.append('<div id="gaboch-rpt" class="rpt-container">')
-    html.append(f'<div class="rpt-ticker">{ticker}</div>')
+    html = [f'<div style="font-family:\'Segoe UI\',Arial,sans-serif;font-size:{fs}px;color:{c_text};max-width:860px">']
+    html.append(f'<div style="{S_HEADER}">{ticker}</div>')
     if company:
-        html.append(f'<div class="rpt-company">{company}</div>')
-    # Company / ETF description (from stock_viewer_web pattern)
+        html.append(f'<div style="{S_SUBHEAD}">{company}</div>')
     if company_desc:
-        html.append(f'<div class="rpt-desc">{company_desc}</div>')
-    html.append('<hr class="rpt-divider">')
+        html.append(f'<div style="{S_DESC}">{company_desc}</div>')
+    html.append(f'<hr style="border:none;border-top:2px solid {c_accent};margin:10px 0 18px 0">')
 
-    # Total box at top
+    # Total box — color baked directly into style
+    total_color = c_profit if total_profit >= 0 else c_loss
     total_str   = fmt_currency(total_profit, is_cad, show_sign=True)
-    total_class = "rpt-total-profit" if total_profit >= 0 else "rpt-total-loss"
     html.append(
-        f'<div class="rpt-total-box">'
-        f'<span class="rpt-total-lbl">TOTAL PROFIT / LOSS:</span>'
-        f'<span class="{total_class}">{total_str}</span>'
+        f'<div style="margin:0 0 22px 0;padding:18px 24px;border:2px solid {c_accent};'
+        f'border-radius:10px;background:{c_card};display:flex;align-items:center;gap:16px">'
+        f'<span style="{S_TEXT};font-size:{fs+1}px;font-weight:700">TOTAL PROFIT / LOSS:</span>'
+        f'<span style="color:{total_color};font-size:{fs+5}px;font-weight:800">{total_str}</span>'
         f'</div>'
     )
 
@@ -763,20 +767,20 @@ def _build_report_html(
             f" &nbsp;·&nbsp; <span style='opacity:0.7;font-weight:400'>{acct}</span>"
             if acct else ""
         )
-        html.append(f'<div class="rpt-txn-hdr">Transaction #{idx}{acct_str}</div>')
+        html.append(f'<div style="{S_TXNHDR}">Transaction #{idx}{acct_str}</div>')
 
         cur_display = cur_used if cur_used is not None else txn["current_price"]
         html.append(field_row("Current Price:",    fmt_currency(cur_display,           is_cad)))
         html.append(field_row("Purchase Price:",   fmt_currency(txn["purchase_price"], is_cad)))
         html.append(field_row("Amount of Shares:", fmt_shares(txn["shares"])))
 
-        pnl_class = "rpt-profit" if (p_float or 0) >= 0 else "rpt-loss"
+        pnl_style = S_PROFIT if (p_float or 0) >= 0 else S_LOSS
         pnl_str   = fmt_currency(p_float, is_cad, show_sign=True)
         pct_str   = fmt_pct(p_pct)
         html.append(field_row(
             "Profit / Loss:",
             f"{pnl_str} &nbsp;<span style='opacity:0.75'>({pct_str})</span>",
-            pnl_class,
+            pnl_style,
         ))
 
         html.append(field_row("Purchase Date:", fmt_date(txn["purchase_date"])))
