@@ -517,8 +517,13 @@ def _inject_css(t: dict) -> None:
     fs = t["font_size"]
     st.markdown(f"""
     <style>
-    /* App background only — do NOT set global color here (breaks profit/loss) */
-    .stApp {{ background-color: {t['bg']} !important; }}
+    /* App background */
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"] > div,
+    .main .block-container {{
+        background-color: {t['bg']} !important;
+    }}
     /* Sidebar */
     section[data-testid="stSidebar"] {{
         background-color: {t['card_bg']} !important;
@@ -627,16 +632,22 @@ def _inject_css(t: dict) -> None:
         color: {t['subhead']} !important;
         font-weight: 600;
     }}
-    div[data-testid="metric-container"] {{
-        background: {t['card_bg']};
-        border: 1px solid {t['border']};
+    /* Metric boxes — cover old (metric-container) and new (stMetric) selectors */
+    div[data-testid="metric-container"],
+    [data-testid="stMetric"] {{
+        background: {t['card_bg']} !important;
+        border: 1px solid {t['border']} !important;
         border-radius: 8px;
         padding: 10px 14px;
     }}
-    div[data-testid="metric-container"] label {{
+    div[data-testid="metric-container"] label,
+    [data-testid="stMetricLabel"] p,
+    [data-testid="stMetricLabel"] {{
         color: {t['subhead']} !important;
     }}
-    div[data-testid="metric-container"] div[data-testid="stMetricValue"] {{
+    div[data-testid="metric-container"] div[data-testid="stMetricValue"],
+    [data-testid="stMetricValue"],
+    [data-testid="stMetricValue"] * {{
         color: {t['header']} !important;
         font-weight: 700;
     }}
