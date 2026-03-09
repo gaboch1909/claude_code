@@ -589,12 +589,12 @@ def _inject_css(t: dict) -> None:
         font-size: {fs + 1}px;
         font-weight: 700;
     }}
-    .rpt-total-profit {{
+    [data-testid="stMarkdownContainer"] .rpt-total-profit {{
         color: {t['profit']} !important;
         font-size: {fs + 5}px;
         font-weight: 800;
     }}
-    .rpt-total-loss {{
+    [data-testid="stMarkdownContainer"] .rpt-total-loss {{
         color: {t['loss']} !important;
         font-size: {fs + 5}px;
         font-weight: 800;
@@ -624,12 +624,12 @@ def _inject_css(t: dict) -> None:
         font-weight: 600;
         font-size: {fs}px;
     }}
-    .rpt-profit {{
+    [data-testid="stMarkdownContainer"] .rpt-profit {{
         color: {t['profit']} !important;
         font-weight: 700;
         font-size: {fs}px;
     }}
-    .rpt-loss {{
+    [data-testid="stMarkdownContainer"] .rpt-loss {{
         color: {t['loss']} !important;
         font-weight: 700;
         font-size: {fs}px;
