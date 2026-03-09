@@ -684,6 +684,8 @@ def _build_report_html(
     company_desc: str = "",
     theme: dict | None = None,
 ) -> str:
+    t  = theme or {}
+    fs = t.get("font_size", 15)
     data         = portfolio[ticker]
     transactions = data["transactions"]
     is_cad       = data["is_canadian"]
@@ -717,7 +719,24 @@ def _build_report_html(
             pf, pp, cur = None, None, None
         pnl_per_txn.append((pf, pp, cur))
 
-    html = ['<div id="gaboch-rpt" class="rpt-container">']
+    html = [f"""<style>
+    .rpt-container{{font-family:'Segoe UI',Arial,sans-serif;font-size:{fs}px;color:{t.get('text','#e8edf2')};max-width:860px}}
+    .rpt-ticker{{color:{t.get('header','#64b5f6')};font-size:{fs+14}px;font-weight:700;letter-spacing:2px;margin-bottom:2px}}
+    .rpt-company{{color:{t.get('subhead','#90caf9')};font-size:{fs+2}px;font-weight:600;margin-bottom:4px}}
+    .rpt-desc{{color:{t.get('text','#e8edf2')};font-size:{fs-1}px;opacity:0.75;margin-bottom:10px;line-height:1.5}}
+    .rpt-divider{{border:none;border-top:2px solid {t.get('accent','#1565c0')};margin:10px 0 18px 0}}
+    .rpt-total-box{{margin:0 0 22px 0;padding:18px 24px;border:2px solid {t.get('accent','#1565c0')};border-radius:10px;background:{t.get('card_bg','#1b2a3b')};display:flex;align-items:center;gap:16px}}
+    .rpt-total-lbl{{color:{t.get('text','#e8edf2')};font-size:{fs+1}px;font-weight:700}}
+    .rpt-total-profit{{color:{t.get('profit','#4caf50')};font-size:{fs+5}px;font-weight:800}}
+    .rpt-total-loss{{color:{t.get('loss','#ef5350')};font-size:{fs+5}px;font-weight:800}}
+    .rpt-txn-hdr{{color:{t.get('subhead','#90caf9')};font-size:{fs+1}px;font-weight:700;margin:18px 0 8px 0;padding-bottom:4px;border-bottom:1px solid {t.get('border','#1e3a5f')}}}
+    .rpt-row{{display:flex;padding:5px 0;border-bottom:1px solid {t.get('border','#1e3a5f')};align-items:center}}
+    .rpt-lbl{{color:{t.get('text','#e8edf2')};width:220px;opacity:0.8;font-size:{fs}px}}
+    .rpt-val{{color:{t.get('text','#e8edf2')};font-weight:600;font-size:{fs}px}}
+    .rpt-profit{{color:{t.get('profit','#4caf50')};font-weight:700;font-size:{fs}px}}
+    .rpt-loss{{color:{t.get('loss','#ef5350')};font-weight:700;font-size:{fs}px}}
+    </style>"""]
+    html.append('<div id="gaboch-rpt" class="rpt-container">')
     html.append(f'<div class="rpt-ticker">{ticker}</div>')
     if company:
         html.append(f'<div class="rpt-company">{company}</div>')
