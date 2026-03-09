@@ -705,7 +705,6 @@ def _build_report_html(
         excel_company = ""
     company = yf_company or excel_company or ticker
 
-    # All styles inline — like desktop's foreground= on each tag
     S_TEXT    = f"color:{c_text}"
     S_HEADER  = f"color:{c_header};font-size:{fs+14}px;font-weight:700;letter-spacing:2px;margin-bottom:2px"
     S_SUBHEAD = f"color:{c_subhead};font-size:{fs+2}px;font-weight:600;margin-bottom:4px"
@@ -714,14 +713,17 @@ def _build_report_html(
     S_LBL     = f"color:{c_text};width:220px;opacity:0.8;font-size:{fs}px"
     S_VAL     = f"color:{c_text};font-weight:600;font-size:{fs}px"
     S_ROW     = f"display:flex;padding:5px 0;border-bottom:1px solid {c_border};align-items:center"
-    S_PROFIT  = f"color:{c_profit};font-weight:700;font-size:{fs}px"
-    S_LOSS    = f"color:{c_loss};font-weight:700;font-size:{fs}px"
+    # CSS classes handle color (from _inject_css); inline style covers font metrics only
+    S_PROFIT_STYLE = f"font-weight:700;font-size:{fs}px"
+    S_LOSS_STYLE   = f"font-weight:700;font-size:{fs}px"
 
-    def field_row(label: str, value: str, val_style: str = S_VAL) -> str:
+    def field_row(label: str, value: str, val_style: str = S_VAL,
+                  val_class: str = "") -> str:
+        cls = f' class="{val_class}"' if val_class else ""
         return (
             f'<div style="{S_ROW}">'
             f'<span style="{S_LBL}">{label}</span>'
-            f'<span style="{val_style}">{value}</span>'
+            f'<span{cls} style="{val_style}">{value}</span>'
             f'</div>'
         )
 
@@ -748,14 +750,14 @@ def _build_report_html(
         html.append(f'<div style="{S_DESC}">{company_desc}</div>')
     html.append(f'<hr style="border:none;border-top:2px solid {c_accent};margin:10px 0 18px 0">')
 
-    # Total box — color baked directly into style
-    total_color = c_profit if total_profit >= 0 else c_loss
-    total_str   = fmt_currency(total_profit, is_cad, show_sign=True)
+    # Total box — CSS class handles color (rpt-total-profit / rpt-total-loss)
+    total_cls = "rpt-total-profit" if total_profit >= 0 else "rpt-total-loss"
+    total_str = fmt_currency(total_profit, is_cad, show_sign=True)
     html.append(
         f'<div style="margin:0 0 22px 0;padding:18px 24px;border:2px solid {c_accent};'
         f'border-radius:10px;background:{c_card};display:flex;align-items:center;gap:16px">'
         f'<span style="{S_TEXT};font-size:{fs+1}px;font-weight:700">TOTAL PROFIT / LOSS:</span>'
-        f'<span style="color:{total_color};font-size:{fs+5}px;font-weight:800">{total_str}</span>'
+        f'<span class="{total_cls}">{total_str}</span>'
         f'</div>'
     )
 
@@ -774,13 +776,14 @@ def _build_report_html(
         html.append(field_row("Purchase Price:",   fmt_currency(txn["purchase_price"], is_cad)))
         html.append(field_row("Amount of Shares:", fmt_shares(txn["shares"])))
 
-        pnl_style = S_PROFIT if (p_float or 0) >= 0 else S_LOSS
+        pnl_class = "rpt-profit" if (p_float or 0) >= 0 else "rpt-loss"
         pnl_str   = fmt_currency(p_float, is_cad, show_sign=True)
         pct_str   = fmt_pct(p_pct)
         html.append(field_row(
             "Profit / Loss:",
             f"{pnl_str} &nbsp;<span style='opacity:0.75'>({pct_str})</span>",
-            pnl_style,
+            val_style=S_PROFIT_STYLE,
+            val_class=pnl_class,
         ))
 
         html.append(field_row("Purchase Date:", fmt_date(txn["purchase_date"])))
@@ -1029,7 +1032,7 @@ def main() -> None:
         portfolio, selected_ticker, live_price, yf_company, company_desc,
         theme=st.session_state.theme,
     )
-    st.html(html)
+    st.markdown(html, unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
