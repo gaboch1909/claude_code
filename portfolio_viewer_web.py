@@ -1006,7 +1006,7 @@ def main() -> None:
         portfolio, selected_ticker, live_price, yf_company, company_desc,
         theme=st.session_state.theme,
     )
-    st.markdown(html, unsafe_allow_html=True)
+    st.html(html)
 
 
 if __name__ == "__main__":
