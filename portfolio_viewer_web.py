@@ -590,12 +590,12 @@ def _inject_css(t: dict) -> None:
         font-weight: 700;
     }}
     .rpt-total-profit {{
-        color: {t['profit']};
+        color: {t['profit']} !important;
         font-size: {fs + 5}px;
         font-weight: 800;
     }}
     .rpt-total-loss {{
-        color: {t['loss']};
+        color: {t['loss']} !important;
         font-size: {fs + 5}px;
         font-weight: 800;
     }}
@@ -625,12 +625,12 @@ def _inject_css(t: dict) -> None:
         font-size: {fs}px;
     }}
     .rpt-profit {{
-        color: {t['profit']};
+        color: {t['profit']} !important;
         font-weight: 700;
         font-size: {fs}px;
     }}
     .rpt-loss {{
-        color: {t['loss']};
+        color: {t['loss']} !important;
         font-weight: 700;
         font-size: {fs}px;
     }}
