@@ -522,9 +522,7 @@ def _inject_css(t: dict) -> None:
     [data-testid="stMain"] {{ color: {t['text']} !important; }}
     [data-testid="stAppViewContainer"] {{ color: {t['text']} !important; }}
     .main .block-container {{ color: {t['text']} !important; }}
-    [data-testid="stMarkdownContainer"],
-    [data-testid="stMarkdownContainer"] p,
-    [data-testid="stMarkdownContainer"] span {{ color: {t['text']} !important; }}
+    [data-testid="stMarkdownContainer"] {{ color: {t['text']} !important; }}
     /* Selectbox / widget labels */
     [data-testid="stSelectbox"] label,
     [data-testid="stTextInput"] label,
@@ -748,7 +746,7 @@ def _build_report_html(
     html.append(
         f'<div class="rpt-total-box">'
         f'<span class="rpt-total-lbl">TOTAL PROFIT / LOSS:</span>'
-        f'<span style="color:{total_color} !important;font-size:inherit;font-weight:800">{total_str}</span>'
+        f'<span style="color:{total_color};font-size:inherit;font-weight:800">{total_str}</span>'
         f'</div>'
     )
 
@@ -772,7 +770,7 @@ def _build_report_html(
         pct_str   = fmt_pct(p_pct)
         html.append(field_row(
             "Profit / Loss:",
-            f"<span style='color:{pnl_color} !important;font-weight:700'>{pnl_str} &nbsp;<span style='opacity:0.75'>({pct_str})</span></span>",
+            f"<span style='color:{pnl_color};font-weight:700'>{pnl_str} &nbsp;<span style='opacity:0.75'>({pct_str})</span></span>",
         ))
 
         html.append(field_row("Purchase Date:", fmt_date(txn["purchase_date"])))
