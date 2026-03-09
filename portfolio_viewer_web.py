@@ -695,7 +695,11 @@ def _build_report_html(
     live_price,
     yf_company: str,
     company_desc: str = "",
+    theme: dict | None = None,
 ) -> str:
+    t = theme or {}
+    profit_color = t.get("profit", "#4caf50")
+    loss_color   = t.get("loss",   "#ef5350")
     data         = portfolio[ticker]
     transactions = data["transactions"]
     is_cad       = data["is_canadian"]
@@ -739,12 +743,12 @@ def _build_report_html(
     html.append('<hr class="rpt-divider">')
 
     # Total box at top
-    total_class = "rpt-total-profit" if total_profit >= 0 else "rpt-total-loss"
+    total_color = profit_color if total_profit >= 0 else loss_color
     total_str   = fmt_currency(total_profit, is_cad, show_sign=True)
     html.append(
         f'<div class="rpt-total-box">'
         f'<span class="rpt-total-lbl">TOTAL PROFIT / LOSS:</span>'
-        f'<span class="{total_class}">{total_str}</span>'
+        f'<span style="color:{total_color};font-size:inherit;font-weight:800">{total_str}</span>'
         f'</div>'
     )
 
@@ -763,13 +767,12 @@ def _build_report_html(
         html.append(field_row("Purchase Price:",   fmt_currency(txn["purchase_price"], is_cad)))
         html.append(field_row("Amount of Shares:", fmt_shares(txn["shares"])))
 
-        pnl_class = "rpt-profit" if (p_float or 0) >= 0 else "rpt-loss"
+        pnl_color = profit_color if (p_float or 0) >= 0 else loss_color
         pnl_str   = fmt_currency(p_float, is_cad, show_sign=True)
         pct_str   = fmt_pct(p_pct)
         html.append(field_row(
             "Profit / Loss:",
-            f"{pnl_str} &nbsp;<span style='opacity:0.75'>({pct_str})</span>",
-            pnl_class,
+            f"<span style='color:{pnl_color};font-weight:700'>{pnl_str} &nbsp;<span style='opacity:0.75'>({pct_str})</span></span>",
         ))
 
         html.append(field_row("Purchase Date:", fmt_date(txn["purchase_date"])))
@@ -1015,7 +1018,8 @@ def main() -> None:
 
     # ── Transaction report ────────────────────────────────────────────────────
     html = _build_report_html(
-        portfolio, selected_ticker, live_price, yf_company, company_desc
+        portfolio, selected_ticker, live_price, yf_company, company_desc,
+        theme=st.session_state.theme,
     )
     st.markdown(html, unsafe_allow_html=True)
 
