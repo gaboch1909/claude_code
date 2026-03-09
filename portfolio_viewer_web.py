@@ -748,7 +748,7 @@ def _build_report_html(
     html.append(
         f'<div class="rpt-total-box">'
         f'<span class="rpt-total-lbl">TOTAL PROFIT / LOSS:</span>'
-        f'<span style="color:{total_color};font-size:inherit;font-weight:800">{total_str}</span>'
+        f'<span style="color:{total_color} !important;font-size:inherit;font-weight:800">{total_str}</span>'
         f'</div>'
     )
 
@@ -772,7 +772,7 @@ def _build_report_html(
         pct_str   = fmt_pct(p_pct)
         html.append(field_row(
             "Profit / Loss:",
-            f"<span style='color:{pnl_color};font-weight:700'>{pnl_str} &nbsp;<span style='opacity:0.75'>({pct_str})</span></span>",
+            f"<span style='color:{pnl_color} !important;font-weight:700'>{pnl_str} &nbsp;<span style='opacity:0.75'>({pct_str})</span></span>",
         ))
 
         html.append(field_row("Purchase Date:", fmt_date(txn["purchase_date"])))
